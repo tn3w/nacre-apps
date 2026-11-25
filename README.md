@@ -4,8 +4,8 @@ Minimal, private system apps for a GrapheneOS-like Android ROM. No Google, no ne
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="apps/clock/readme/logo-dark.png">
-    <img src="apps/clock/readme/logo-light.png" width="190" alt="Clock">
+    <source media="(prefers-color-scheme: dark)" srcset="apps/clock/readme/badge-dark.png">
+    <img src="apps/clock/readme/badge-light.png" width="190" alt="Clock">
   </picture>
 </p>
 

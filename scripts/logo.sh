@@ -15,7 +15,7 @@ badge() {
         -background none -gravity center +smush 20 -bordercolor none -border 44x20 \
         \( +clone -alpha transparent -fill "$2" \
         -draw "roundrectangle 0,0,%[fx:w-1],%[fx:h-1],44,44" \) \
-        +swap -compose Over -composite -strip "$out/logo-$4.png"
+        +swap -compose Over -composite -strip "$out/badge-$4.png"
 }
 
 mkdir -p "$out"
