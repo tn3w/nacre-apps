@@ -15,6 +15,7 @@ cleanup() {
     adb shell settings put global sysui_demo_allowed 0
     adb shell cmd uimode night no >/dev/null
     adb shell pm clear "$package" >/dev/null
+    if declare -F unstage >/dev/null; then unstage; fi
     rm -rf "$work"
 }
 
