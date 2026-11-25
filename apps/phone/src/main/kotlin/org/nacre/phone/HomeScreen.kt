@@ -7,7 +7,6 @@ import android.content.Intent
 import android.provider.CallLog.Calls
 import android.provider.Settings
 import android.telecom.TelecomManager
-import android.telephony.PhoneNumberUtils
 import android.telephony.TelephonyManager
 import android.text.format.DateUtils
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -524,11 +523,7 @@ fun HistoryScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val entries by rememberQuery<List<Entry>?>(null, number, presentation) {
-        callLog().filter {
-            it.presentation == presentation &&
-                PhoneNumberUtils.normalizeNumber(it.number) ==
-                PhoneNumberUtils.normalizeNumber(number)
-        }
+        callLog().filter { it.isCaller(number, presentation) }
     }
     val known by rememberQuery<Number?>(null, number) { lookup(number) }
     val blocked by rememberQuery(false, number) { isBlocked(number) }

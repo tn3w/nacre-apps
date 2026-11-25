@@ -258,20 +258,18 @@ private val LOG_COLUMNS =
         Calls.NUMBER_PRESENTATION,
     )
 
-fun Context.callLog(number: String? = null): List<Entry> {
+fun Context.callLog(): List<Entry> {
     val uri =
         Calls.CONTENT_URI
             .buildUpon()
             .appendQueryParameter(Calls.LIMIT_PARAM_KEY, LOG_LIMIT)
             .build()
-    val selection = number?.let { "${Calls.NUMBER} = ?" }
-    val arguments = number?.let { arrayOf(it) }
     return contentResolver
         .query(
             uri,
             LOG_COLUMNS,
-            selection,
-            arguments,
+            null,
+            null,
             "${Calls.DATE} DESC",
         ).list {
             val type = int(Calls.CACHED_NUMBER_TYPE)
@@ -300,7 +298,9 @@ fun List<Entry>.grouped(): List<List<Entry>> {
     val groups = mutableListOf<MutableList<Entry>>()
     for (entry in this) {
         val group = groups.lastOrNull()
-        if (group != null && group.first().sameCaller(entry)) {
+        if (group != null &&
+            entry.isCaller(group.first().number, group.first().presentation)
+        ) {
             group += entry
         } else {
             groups += mutableListOf(entry)
@@ -309,10 +309,12 @@ fun List<Entry>.grouped(): List<List<Entry>> {
     return groups
 }
 
-private fun Entry.sameCaller(other: Entry) =
-    presentation == other.presentation &&
-        PhoneNumberUtils.normalizeNumber(number) ==
-        PhoneNumberUtils.normalizeNumber(other.number)
+fun Entry.isCaller(
+    number: String,
+    presentation: Int,
+) = this.presentation == presentation &&
+    PhoneNumberUtils.normalizeNumber(this.number) ==
+    PhoneNumberUtils.normalizeNumber(number)
 
 fun ContentResolver.deleteCalls(ids: List<Long>) {
     if (ids.isEmpty()) return
