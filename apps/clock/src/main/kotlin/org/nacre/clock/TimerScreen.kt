@@ -143,41 +143,36 @@ private fun TimerCard(timer: Timer, now: Long) {
     val left = timer.left(now)
     val expired = left <= 0
     val paused = !timer.running && timer.remaining != timer.duration
+    val time = if (expired) {
+        "-${formatClock(-left / 1000)}"
+    } else {
+        formatClock((left + 999) / 1000)
+    }
 
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(20.dp)) {
-            LabelField(timer)
-            Text(
-                if (expired) {
-                    "-${formatClock(-left / 1000)}"
-                } else {
-                    formatClock((left + 999) / 1000)
-                },
-                fontSize = 56.sp,
-                fontWeight = FontWeight.Light
-            )
-            LinearProgressIndicator(
-                progress = { (left.toFloat() / timer.duration).coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
-            )
+        Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { Store.saveTimer(timer.plusMinute()) }) {
-                    Text("+1:00")
-                }
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = { Store.deleteTimer(timer) }) {
-                    Icon(painterResource(R.drawable.ic_delete), "Delete")
+                Column(Modifier.weight(1f)) {
+                    LabelField(timer)
+                    Text(time, fontSize = 40.sp, fontWeight = FontWeight.Light)
                 }
                 if (paused) {
                     IconButton(onClick = { Store.saveTimer(timer.reset()) }) {
                         Icon(painterResource(R.drawable.ic_stop), "Reset")
                     }
+                } else if (timer.running) {
+                    TextButton(onClick = { Store.saveTimer(timer.plusMinute()) }) {
+                        Text("+1:00")
+                    }
+                }
+                IconButton(onClick = { Store.deleteTimer(timer) }) {
+                    Icon(painterResource(R.drawable.ic_delete), "Delete")
                 }
                 FilledIconButton(
                     onClick = {
                         Store.saveTimer(if (expired) timer.reset() else timer.toggled())
                     },
-                    modifier = Modifier.size(56.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     val icon = when {
                         expired -> R.drawable.ic_stop
@@ -187,6 +182,12 @@ private fun TimerCard(timer: Timer, now: Long) {
                     Icon(painterResource(icon), "Start or pause")
                 }
             }
+            LinearProgressIndicator(
+                progress = { (left.toFloat() / timer.duration).coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                gapSize = 0.dp,
+                drawStopIndicator = {}
+            )
         }
     }
 }
