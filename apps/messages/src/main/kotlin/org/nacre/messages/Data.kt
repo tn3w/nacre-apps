@@ -54,21 +54,35 @@ fun CharSequence?.clean(): String =
         .toString()
 
 fun CharSequence?.cleanBody(): String {
-    val text = (this ?: "").take(BODY_LIMIT)
+    val text = (this ?: "").take(BODY_LIMIT).toString()
     val out = StringBuilder(text.length)
     var marks = 0
-    for (char in text) {
-        if (char in BIDI_OVERRIDES) continue
-        if (Character.getType(char) == Character.CONTROL.toInt() &&
-            char !in "\n\t"
-        ) {
-            continue
-        }
-        marks = if (Character.getType(char) in MARKS) marks + 1 else 0
-        if (marks <= MARKS_LIMIT) out.append(char)
+    for (point in text.codePoints()) {
+        if (!point.isShown()) continue
+        marks = if (Character.getType(point) in MARKS) marks + 1 else 0
+        if (marks <= MARKS_LIMIT) out.appendCodePoint(point)
     }
     return out.toString().replace(Regex("\n{3,}"), "\n\n").trim()
 }
+
+private fun Int.isShown(): Boolean {
+    if (this == '\n'.code || this == '\t'.code) return true
+    if (toChar() in BIDI_OVERRIDES && this < 0x10000) return false
+    return Character.getType(this) !in UNSHOWN
+}
+
+private val UNSHOWN =
+    listOf(
+        Character.CONTROL,
+        Character.PRIVATE_USE,
+        Character.SURROGATE,
+        Character.UNASSIGNED,
+    ).map(Byte::toInt)
+
+private fun String.isEmoji() =
+    isNotEmpty() &&
+        codePoints().allMatch { it.isShown() } &&
+        codePoints().anyMatch { Character.getType(it) == Character.OTHER_SYMBOL.toInt() }
 
 data class Person(
     val address: String,
@@ -589,6 +603,7 @@ data class Reaction(
 fun parseReaction(body: String): Reaction? {
     GOOGLE_REACTION.matchEntire(body)?.let {
         val (verb, emoji, quote) = it.destructured
+        if (!emoji.isEmoji()) return null
         return Reaction(emoji, quote.removeSuffix("…"), verb == "Removed")
     }
     APPLE_REACTION.matchEntire(body)?.let {
