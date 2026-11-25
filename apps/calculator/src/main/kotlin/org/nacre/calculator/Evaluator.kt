@@ -5,9 +5,7 @@ import java.math.MathContext
 import java.math.RoundingMode
 import java.text.DecimalFormatSymbols
 
-class CalculationException(
-    message: String,
-) : Exception(message)
+class CalculationException(message: String) : Exception(message)
 
 private val precision = MathContext.DECIMAL128
 private val PI = BigDecimal("3.141592653589793238462643383279503")
@@ -19,20 +17,13 @@ private const val OPERAND_STARTS = "0123456789.(πe√sctl"
 val FUNCTIONS =
     listOf("sin⁻¹(", "cos⁻¹(", "tan⁻¹(", "sin(", "cos(", "tan(", "ln(", "log(")
 
-fun evaluate(
-    text: String,
-    degrees: Boolean = false,
-): BigDecimal =
-    try {
-        Evaluator(text, degrees).evaluate()
-    } catch (_: ArithmeticException) {
-        throw CalculationException("Too large")
-    }
+fun evaluate(text: String, degrees: Boolean = false): BigDecimal = try {
+    Evaluator(text, degrees).evaluate()
+} catch (_: ArithmeticException) {
+    throw CalculationException("Too large")
+}
 
-private class Evaluator(
-    private val text: String,
-    private val degrees: Boolean,
-) {
+private class Evaluator(private val text: String, private val degrees: Boolean) {
     private var position = 0
 
     fun evaluate(): BigDecimal {
@@ -44,25 +35,23 @@ private class Evaluator(
     private fun expression(): BigDecimal {
         var value = term()
         while (true) {
-            value =
-                when {
-                    take("+") -> value.add(term(), precision)
-                    take("−") -> value.subtract(term(), precision)
-                    else -> return value
-                }
+            value = when {
+                take("+") -> value.add(term(), precision)
+                take("−") -> value.subtract(term(), precision)
+                else -> return value
+            }
         }
     }
 
     private fun term(): BigDecimal {
         var value = unary()
         while (true) {
-            value =
-                when {
-                    take("×") -> value.multiply(unary(), precision)
-                    take("÷") -> divide(value, unary())
-                    startsOperand() -> value.multiply(unary(), precision)
-                    else -> return value
-                }
+            value = when {
+                take("×") -> value.multiply(unary(), precision)
+                take("÷") -> divide(value, unary())
+                startsOperand() -> value.multiply(unary(), precision)
+                else -> return value
+            }
         }
     }
 
@@ -76,12 +65,11 @@ private class Evaluator(
     private fun postfix(): BigDecimal {
         var value = primary()
         while (true) {
-            value =
-                when {
-                    take("!") -> factorial(value)
-                    take("%") -> value.movePointLeft(2)
-                    else -> return value
-                }
+            value = when {
+                take("!") -> factorial(value)
+                take("%") -> value.movePointLeft(2)
+                else -> return value
+            }
         }
     }
 
@@ -103,54 +91,44 @@ private class Evaluator(
         return BigDecimal(match.value.replace('−', '-'))
     }
 
-    private fun apply(
-        function: String,
-        value: BigDecimal,
-    ): BigDecimal {
+    private fun apply(function: String, value: BigDecimal): BigDecimal {
         val angle = if (degrees) Math.toRadians(value.toDouble()) else value.toDouble()
         return when (function) {
             "sin(" -> bounded(Math.sin(angle))
             "cos(" -> bounded(Math.cos(angle))
-            "tan(" -> divide(bounded(Math.sin(angle)), bounded(Math.cos(angle)))
+            "tan(" -> tangent(angle)
             "ln(" -> logarithm(value, Math::log)
             "log(" -> logarithm(value, Math::log10)
             else -> inverse(function, value.toDouble())
         }
     }
 
-    private fun inverse(
-        function: String,
-        value: Double,
-    ): BigDecimal {
-        val radians =
-            when (function) {
-                "sin⁻¹(" -> Math.asin(value)
-                "cos⁻¹(" -> Math.acos(value)
-                else -> Math.atan(value)
-            }
+    private fun tangent(angle: Double): BigDecimal {
+        val cosine = bounded(Math.cos(angle))
+        if (cosine.signum() == 0) fail("Undefined")
+        return bounded(Math.sin(angle)).divide(cosine, precision)
+    }
+
+    private fun inverse(function: String, value: Double): BigDecimal {
+        val radians = when (function) {
+            "sin⁻¹(" -> Math.asin(value)
+            "cos⁻¹(" -> Math.acos(value)
+            else -> Math.atan(value)
+        }
         return fromDouble(if (degrees) Math.toDegrees(radians) else radians)
     }
 
-    private fun logarithm(
-        value: BigDecimal,
-        function: (Double) -> Double,
-    ): BigDecimal {
+    private fun logarithm(value: BigDecimal, function: (Double) -> Double): BigDecimal {
         if (value.signum() <= 0) fail("Undefined")
         return fromDouble(function(value.toDouble()))
     }
 
-    private fun divide(
-        value: BigDecimal,
-        divisor: BigDecimal,
-    ): BigDecimal {
+    private fun divide(value: BigDecimal, divisor: BigDecimal): BigDecimal {
         if (divisor.signum() == 0) fail("Can't divide by 0")
         return value.divide(divisor, precision)
     }
 
-    private fun raise(
-        base: BigDecimal,
-        exponent: BigDecimal,
-    ): BigDecimal {
+    private fun raise(base: BigDecimal, exponent: BigDecimal): BigDecimal {
         val whole = exponent.stripTrailingZeros().scale() <= 0
         if (!whole || exponent.abs() > BigDecimal(999_999_999)) {
             return fromDouble(Math.pow(base.toDouble(), exponent.toDouble()))
@@ -188,10 +166,9 @@ private class Evaluator(
     private fun startsOperand() =
         position < text.length && text[position] in OPERAND_STARTS
 
-    private fun take(token: String) =
-        text.startsWith(token, position).also {
-            if (it) position += token.length
-        }
+    private fun take(token: String) = text.startsWith(token, position).also {
+        if (it) position += token.length
+    }
 
     private fun fail(message: String = "Error"): Nothing =
         throw CalculationException(message)
@@ -201,12 +178,11 @@ fun format(value: BigDecimal): String {
     val rounded = value.round(MathContext(16)).stripTrailingZeros()
     if (rounded.signum() == 0) return "0"
     val exponent = rounded.precision() - rounded.scale() - 1
-    val text =
-        if (exponent in -6..15) {
-            rounded.toPlainString()
-        } else {
-            "${rounded.movePointLeft(exponent).toPlainString()}E$exponent"
-        }
+    val text = if (exponent in -6..15) {
+        rounded.toPlainString()
+    } else {
+        "${rounded.movePointLeft(exponent).toPlainString()}E$exponent"
+    }
     return text.replace('-', '−')
 }
 
@@ -215,13 +191,9 @@ fun display(text: String): String {
     return DISPLAY_NUMBER.replace(text) { match ->
         val (integer, fraction) = match.destructured
         if (integer.isEmpty()) return@replace match.value
-        val grouped =
-            integer
-                .reversed()
-                .chunked(3)
-                .joinToString(
-                    symbols.groupingSeparator.toString(),
-                ).reversed()
+        val grouped = integer.reversed().chunked(3).joinToString(
+            symbols.groupingSeparator.toString()
+        ).reversed()
         grouped + fraction.replace('.', symbols.decimalSeparator)
     }
 }
