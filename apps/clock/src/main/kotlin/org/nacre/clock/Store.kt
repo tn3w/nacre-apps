@@ -147,10 +147,7 @@ object Store {
         notifyStopwatch(context, value)
     }
 
-    private fun silence(uri: String) {
-        if (RingService.current.value?.uri.toString() != uri) return
-        context.stopService(Intent(context, RingService::class.java))
-    }
+    private fun silence(uri: String) = RingService.silence(context, uri)
 
     fun addMinute(id: Int) = timer(id)?.let { saveTimer(it.plusMinute()) }
 

@@ -5,7 +5,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ServiceInfo
+import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
 import android.graphics.drawable.Icon
 import android.media.AudioAttributes
 import android.media.MediaPlayer
@@ -69,18 +69,32 @@ class RingService : Service() {
     private val scope = MainScope()
     private var player: MediaPlayer? = null
     private var sound: Job? = null
+    private val queue = ArrayDeque<Uri>()
 
     override fun onBind(intent: Intent?) = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val ringing = current.value
+        val uri = intent?.data
         when (intent?.action) {
             SNOOZE -> ringing?.let { Store.snooze(it.id) }
             ADD_MINUTE -> ringing?.let { Store.addMinute(it.id) }
             DISMISS -> ringing?.takeUnless { it.isAlarm }?.let { Store.resetTimer(it.id) }
         }
-        val uri = intent?.data
-        if (uri == null) stop() else ring(uri)
+        when {
+            intent?.action == SILENCE -> if (ringing?.uri ==
+                uri
+            ) {
+                next()
+            } else {
+                queue.remove(uri)
+            }
+
+            uri != null -> ring(uri)
+
+            else -> next()
+        }
+        if (current.value == null) stop()
         return START_NOT_STICKY
     }
 
@@ -91,13 +105,23 @@ class RingService : Service() {
     }
 
     private fun ring(uri: Uri) {
-        val ringing = describe(uri) ?: return stop()
+        val active = current.value
+        if (active != null && active.uri != uri) {
+            if (uri !in queue) queue.addLast(uri)
+            startForeground(
+                NOTIFICATION,
+                notification(active),
+                FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
+            )
+            return
+        }
+        val ringing = describe(uri) ?: return
         silence()
         current.value = ringing
         startForeground(
             NOTIFICATION,
             notification(ringing),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
+            FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
         )
         if (ringing.vibrate) vibrate()
         sound = scope.launch {
@@ -105,8 +129,15 @@ class RingService : Service() {
             val minutes = Store[Option.Silence]
             if (minutes == 0) return@launch
             delay(minutes * 60_000L)
-            stop()
+            next()
+            if (current.value == null) stop()
         }
+    }
+
+    private fun next() {
+        silence()
+        current.value = null
+        while (current.value == null) ring(queue.removeFirstOrNull() ?: return)
     }
 
     private fun describe(uri: Uri): Ringing? {
@@ -227,6 +258,7 @@ class RingService : Service() {
         const val SNOOZE = "snooze"
         const val DISMISS = "dismiss"
         const val ADD_MINUTE = "add_minute"
+        private const val SILENCE = "silence"
         private const val NOTIFICATION = 1
 
         val current = MutableStateFlow<Ringing?>(null)
@@ -235,6 +267,12 @@ class RingService : Service() {
             context.startForegroundService(
                 Intent(context, RingService::class.java).setData(uri)
             )
+        }
+
+        fun silence(context: Context, uri: String) {
+            if (current.value == null) return
+            val intent = Intent(context, RingService::class.java).setData(Uri.parse(uri))
+            context.startService(intent.setAction(SILENCE))
         }
 
         fun send(context: Context, action: String) {
