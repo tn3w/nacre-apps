@@ -26,6 +26,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -56,7 +57,9 @@ private const val PHOTO_SIZE = 720
 
 class Form(private val prefill: List<Row>) {
     var loaded by mutableStateOf(false)
-    var rawId: Long? = null
+    var readOnly by mutableStateOf(false)
+    var rawIds = emptyList<Long>()
+    var joinTo: Long? = null
     var original = emptyList<Row>()
     var initial = emptyList<Row>()
     val rows = mutableStateListOf<Row>()
@@ -65,18 +68,29 @@ class Form(private val prefill: List<Row>) {
 
     val changed get() = photoChanged || rows.toList() != initial
 
-    val valid get() = rows.filter { it.kind == Kind.Birthday && !it.blank }
-        .all { validBirthday(it.value.trim()) }
+    val savable: Boolean
+        get() {
+            val empty = rawIds.isEmpty() && photo == null && rows.all { it.blank }
+            val birthdays = rows.filter { it.kind == Kind.Birthday && !it.blank }
+            return loaded && !empty && birthdays.all { validBirthday(it.value.trim()) }
+        }
 
-    fun load(resolver: ContentResolver, contactId: Long?) {
-        val details = contactId?.let(resolver::details)
-        rawId = details?.rawId
-        original = rawId?.let(resolver::rawRows).orEmpty()
-        photo = details?.photo
+    suspend fun load(resolver: ContentResolver, contactId: Long?) {
+        val raws = withContext(Dispatchers.IO) { contactId?.let(resolver::rawContacts) }
+            .orEmpty()
+        val writable = raws.filter { it.writable }.map { it.id }
+        val stored = withContext(Dispatchers.IO) { writable.flatMap(resolver::rawRows) }
+        val details = withContext(Dispatchers.IO) { contactId?.let(resolver::details) }
+        if (loaded) return
+        rawIds = writable
+        joinTo = raws.firstOrNull()?.id
+        readOnly = raws.isNotEmpty() && writable.isEmpty()
+        original = stored
+        photo = details?.photo?.takeUnless { readOnly }
         val existing = original + prefill.filter { row ->
             !row.kind.single || original.none { it.kind == row.kind }
         }
-        val starters = if (contactId == null) listOf(Kind.Phone, Kind.Email) else emptyList()
+        val starters = if (contactId == null) listOf(Kind.Phone, Kind.Email) else listOf()
         val missing = Kind.entries.filter { kind ->
             (kind.single || kind in starters) && existing.none { it.kind == kind }
         }
@@ -102,7 +116,7 @@ fun EditScreen(
     var discarding by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     LaunchedEffect(form) {
-        if (!form.loaded) withContext(Dispatchers.IO) { form.load(context.contentResolver, contactId) }
+        if (!form.loaded) form.load(context.contentResolver, contactId)
     }
     val leave = { if (form.changed) discarding = true else onBack() }
     BackHandler(onBack = leave)
@@ -117,13 +131,17 @@ fun EditScreen(
                     }
                     saving = false
                     if (result == null) {
-                        Toast.makeText(context, "Could not save", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            "Could not save",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     } else {
                         onSaved(result.first, result.second)
                     }
                 }
             },
-            enabled = form.loaded && form.valid && !saving
+            enabled = form.savable && !saving
         ) { Text("Save") }
     }) {
         if (form.loaded) EditFields(form)
@@ -133,7 +151,9 @@ fun EditScreen(
         AlertDialog(
             onDismissRequest = { discarding = false },
             title = { Text("Discard changes?") },
-            dismissButton = { TextButton(onClick = { discarding = false }) { Text("Keep editing") } },
+            dismissButton = {
+                TextButton(onClick = { discarding = false }) { Text("Keep editing") }
+            },
             confirmButton = { TextButton(onClick = onBack) { Text("Discard") } }
         )
     }
@@ -141,16 +161,20 @@ fun EditScreen(
 
 private fun Context.save(form: Form): Pair<Uri?, Long?> {
     val rows = form.rows.map { row ->
-        if (row.kind == Kind.Phone && !row.blank) row.copy(value = formatPhone(row.value)) else row
+        val edited = row.kind == Kind.Phone && !row.blank && row !in form.original
+        if (edited) row.copy(value = formatPhone(row.value)) else row
     }
-    val rawId = contentResolver.save(form.rawId, form.original, rows)
+    val resolver = contentResolver
+    val rawId = resolver.save(form.rawIds.firstOrNull(), form.joinTo, form.original, rows)
     if (form.photoChanged) {
-        val bytes = form.photo?.let { uri -> contentResolver.openInputStream(uri)?.use { it.readBytes() } }
-        contentResolver.setPhoto(rawId, bytes)
+        val bytes = form.photo?.let { uri ->
+            resolver.openInputStream(uri)?.use { it.readBytes() }
+        }
+        resolver.setPhoto((listOf(rawId) + form.rawIds).distinct(), bytes)
     }
     cacheDir.listFiles { file -> file.name.startsWith("photo") }?.forEach(File::delete)
-    val uri = contentResolver.lookupUri(rawId)
-    return uri to uri?.let(contentResolver::contactId)
+    val uri = resolver.lookupUri(rawId)
+    return uri to uri?.let(resolver::contactId)
 }
 
 @Composable
@@ -160,7 +184,8 @@ private fun EditFields(form: Form) {
     val picker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         scope.launch {
-            val photo = withContext(Dispatchers.IO) { runCatching { context.squarePhoto(uri) } }
+            val photo =
+                withContext(Dispatchers.IO) { runCatching { context.squarePhoto(uri) } }
             photo.onSuccess {
                 form.photo = it
                 form.photoChanged = true
@@ -172,10 +197,22 @@ private fun EditFields(form: Form) {
         Modifier.verticalScroll(rememberScrollState()).imePadding().padding(16.dp),
         Arrangement.spacedBy(12.dp)
     ) {
-        Column(Modifier.fillMaxWidth(), Arrangement.spacedBy(4.dp), Alignment.CenterHorizontally) {
-            Box(Modifier.clickable {
-                picker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly))
-            }) {
+        if (form.readOnly) {
+            Text(
+                "This contact is synced read-only. Details added here are kept on this device.",
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+        Column(
+            Modifier.fillMaxWidth(),
+            Arrangement.spacedBy(4.dp),
+            Alignment.CenterHorizontally
+        ) {
+            Box(
+                Modifier.clickable {
+                    picker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly))
+                }
+            ) {
                 Avatar(name?.value.orEmpty(), form.photo, 112.dp)
             }
             Row {
@@ -259,7 +296,9 @@ private fun ListField(form: Form, index: Int, row: Row) {
                 Text(row.kind.label(context.resources, row.type, row.label))
                 DropdownMenu(menu, { menu = false }) {
                     row.kind.types.forEach { type ->
-                        DropdownMenuItem({ Text(row.kind.label(context.resources, type, null)) }, {
+                        DropdownMenuItem({
+                            Text(row.kind.label(context.resources, type, null))
+                        }, {
                             form.rows[index] = row.copy(type = type)
                             menu = false
                         })
@@ -324,6 +363,8 @@ private fun Context.squarePhoto(uri: Uri): Uri {
     val bytes = ByteArrayOutputStream().also {
         square.compress(Bitmap.CompressFormat.JPEG, 90, it)
     }.toByteArray()
-    val file = File(cacheDir, "photo-${System.nanoTime()}.jpg").apply { writeBytes(bytes) }
+    val file = File(cacheDir, "photo-${System.nanoTime()}.jpg").apply {
+        writeBytes(bytes)
+    }
     return Uri.fromFile(file)
 }

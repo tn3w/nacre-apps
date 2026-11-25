@@ -1,12 +1,15 @@
 package org.nacre.contacts
 
 import android.Manifest
+import android.content.ContentResolver
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.ContactsContract
 import android.provider.ContactsContract.Intents.Insert
+import android.provider.ContactsContract.QuickContact
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -36,12 +39,20 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.nacre.core.NacreTheme
+
+private const val MAX_TEXT = 4096
 
 private val PERMISSIONS = arrayOf(
     Manifest.permission.READ_CONTACTS,
     Manifest.permission.WRITE_CONTACTS
 )
+
+private val PICK_ACTIONS = listOf(Intent.ACTION_PICK, Intent.ACTION_GET_CONTENT)
 
 enum class Tab { Contacts, Favorites, Manage }
 
@@ -70,82 +81,128 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         window.isNavigationBarContrastEnforced = false
-        navigation.granted = PERMISSIONS.all {
-            checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED
-        }
+        navigation.granted = hasPermissions()
         setContent {
             NacreTheme {
                 val launcher = rememberLauncherForActivityResult(
                     RequestMultiplePermissions()
-                ) { results -> navigation.granted = results.values.all { it } }
+                ) { results -> onPermissions(results.values.all { it }) }
                 if (!navigation.granted) {
                     PermissionScreen { launcher.launch(PERMISSIONS) }
                     return@NacreTheme
                 }
                 LaunchedEffect(Unit) {
-                    if (navigation.stack.isEmpty()) navigation.stack += route(intent)
+                    if (navigation.stack.isNotEmpty()) return@LaunchedEffect
+                    val screen = withContext(Dispatchers.IO) { route(intent) }
+                    if (navigation.stack.isEmpty()) navigation.stack += screen
                 }
                 ContactsApp(navigation, ::finishWith)
             }
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (!navigation.granted) return
+        lifecycleScope.launch {
+            val screen = withContext(Dispatchers.IO) { route(intent) }
+            navigation.stack.clear()
+            navigation.stack += screen
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        navigation.granted = hasPermissions()
+    }
+
+    private fun hasPermissions() = PERMISSIONS.all {
+        checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun onPermissions(granted: Boolean) {
+        navigation.granted = granted
+        if (granted || shouldShowRequestPermissionRationale(PERMISSIONS.first())) return
+        val settings = Uri.fromParts("package", packageName, null)
+        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, settings))
+    }
+
     private fun finishWith(uri: Uri?) {
         if (uri != null) {
-            val result = Intent().setData(uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            setResult(RESULT_OK, result)
+            val picking = intent.action in PICK_ACTIONS
+            val flags = if (picking) Intent.FLAG_GRANT_READ_URI_PERMISSION else 0
+            setResult(RESULT_OK, Intent().setData(uri).addFlags(flags))
         }
         finish()
     }
 
     private fun route(intent: Intent): Screen {
+        val home = Screen.Home(Tab.Contacts)
+        return runCatching { routeOrNull(intent) }.getOrNull() ?: home
+    }
+
+    private fun routeOrNull(intent: Intent): Screen? {
         val uri = intent.data
         val type = intent.resolveType(this).orEmpty()
-        val item = type.startsWith("vnd.android.cursor.item/")
-        val home = Screen.Home(Tab.entries.find { it.name == intent.getStringExtra("tab") }
-            ?: Tab.Contacts)
+        val tab = intent.getStringExtra("tab")
         return when (intent.action) {
-            Intent.ACTION_VIEW, ContactsContract.QuickContact.ACTION_QUICK_CONTACT -> when {
-                "vcard" in type || type == "text/directory" -> home.also {
-                    navigation.importUri = uri
-                }
-
-                item -> details(uri) ?: home
-
-                else -> home
+            Intent.ACTION_VIEW, QuickContact.ACTION_QUICK_CONTACT -> when {
+                "vcard" in type || type == "text/directory" -> importing(uri)
+                type.startsWith("vnd.android.cursor.item/") -> details(uri)
+                else -> null
             }
 
-            Intent.ACTION_EDIT -> uri?.let(contentResolver::contactId)
-                ?.let { Screen.Edit(it, insertRows(intent.extras)) }
-                ?: Screen.Edit(null, insertRows(intent.extras))
+            Intent.ACTION_EDIT -> Screen.Edit(
+                uri?.let(::contactId),
+                insertRows(intent.extras)
+            )
 
             Intent.ACTION_INSERT -> Screen.Edit(null, insertRows(intent.extras))
 
             Intent.ACTION_INSERT_OR_EDIT -> Screen.Pick(null, insertRows(intent.extras))
 
-            Intent.ACTION_PICK, Intent.ACTION_GET_CONTENT -> Screen.Pick(kindOf(type))
+            in PICK_ACTIONS -> Screen.Pick(kindOf(type))
 
-            ContactsContract.Intents.SHOW_OR_CREATE_CONTACT -> showOrCreate(uri) ?: home
+            ContactsContract.Intents.SHOW_OR_CREATE_CONTACT -> showOrCreate(uri)
 
-            else -> if (intent.getStringExtra("tab") == "Details") {
-                contentResolver.contacts().let { all -> all.find { it.starred } ?: all.firstOrNull() }
-                    ?.let { Screen.Details(it.id) } ?: home
+            else -> if (tab == "Details") {
+                contentResolver.contacts().let { all ->
+                    all.find { it.starred }
+                        ?: all.firstOrNull()
+                }
+                    ?.let { Screen.Details(it.id) }
             } else {
-                home
+                Tab.entries.find { it.name == tab }?.let(Screen::Home)
             }
         }
     }
 
-    private fun details(uri: Uri?) = uri?.let(contentResolver::contactId)?.let(Screen::Details)
+    private fun contactId(uri: Uri) = contentResolver.contactId(uri)
+
+    private fun details(uri: Uri?) = uri?.let(::contactId)?.let(Screen::Details)
+
+    private fun importing(uri: Uri?): Screen? {
+        val external = uri?.scheme == ContentResolver.SCHEME_CONTENT &&
+            uri.authority != ContactsContract.AUTHORITY
+        if (external) navigation.importUri = uri
+        return null
+    }
 
     private fun showOrCreate(uri: Uri?): Screen? {
-        val value = uri?.schemeSpecificPart?.takeIf { it.isNotBlank() } ?: return null
+        val value = uri?.schemeSpecificPart?.trim()?.take(MAX_TEXT)
+        if (value.isNullOrEmpty()) return null
         val phone = uri.scheme == "tel"
-        val existing = runCatching {
-            if (phone) contentResolver.lookupPhone(value) else contentResolver.lookupEmail(value)
-        }.getOrNull()
+        val existing = if (phone) {
+            contentResolver.lookupPhone(value)
+        } else {
+            contentResolver.lookupEmail(value)
+        }
         if (existing != null) return Screen.Details(existing)
-        return Screen.Edit(null, listOf(Row(if (phone) Kind.Phone else Kind.Email, value)))
+        return Screen.Edit(
+            null,
+            listOf(Row(if (phone) Kind.Phone else Kind.Email, value))
+        )
     }
 }
 
@@ -158,15 +215,27 @@ private fun kindOf(type: String) = when (type.substringAfter('/')) {
 
 private fun insertRows(extras: Bundle?): List<Row> {
     if (extras == null) return emptyList()
-    fun text(key: String) = extras.getCharSequence(key)?.toString()?.trim().orEmpty()
+    fun text(key: String) =
+        extras.getCharSequence(key)?.toString()?.trim()?.take(MAX_TEXT)
+            .orEmpty()
     val name = text(Insert.NAME)
     val company = text(Insert.COMPANY)
     val title = text(Insert.JOB_TITLE)
     return buildList {
         if (name.isNotEmpty()) {
-            add(Row(Kind.Name, name.substringBeforeLast(' '), name.substringAfterLast(' ', "")))
+            add(
+                Row(
+                    Kind.Name,
+                    name.substringBeforeLast(' '),
+                    name.substringAfterLast(' ', "")
+                )
+            )
         }
-        if (company.isNotEmpty() || title.isNotEmpty()) add(Row(Kind.Organization, company, title))
+        if (company.isNotEmpty() ||
+            title.isNotEmpty()
+        ) {
+            add(Row(Kind.Organization, company, title))
+        }
         listOf(Insert.PHONE, Insert.SECONDARY_PHONE, Insert.TERTIARY_PHONE)
             .map(::text).filter { it.isNotEmpty() }.forEach { add(Row(Kind.Phone, it)) }
         listOf(Insert.EMAIL, Insert.SECONDARY_EMAIL, Insert.TERTIARY_EMAIL)
@@ -200,10 +269,17 @@ fun ContactsApp(navigation: Navigation, finishWith: (Uri?) -> Unit) {
             onEdit = { stack += Screen.Edit(screen.contactId) }
         )
 
-        is Screen.Edit -> EditScreen(screen.contactId, screen.form, back) { uri, contactId ->
+        is Screen.Edit -> EditScreen(screen.contactId, screen.form, back) {
+                uri,
+                contactId
+            ->
             when {
                 stack.size == 1 -> finishWith(uri)
-                screen.contactId == null && contactId != null -> replace(Screen.Details(contactId))
+
+                screen.contactId == null && contactId != null -> replace(
+                    Screen.Details(contactId)
+                )
+
                 else -> back()
             }
         }
@@ -214,8 +290,11 @@ fun ContactsApp(navigation: Navigation, finishWith: (Uri?) -> Unit) {
             onBack = back,
             onCreate = { replace(Screen.Edit(null, screen.prefill.orEmpty())) }
         ) { uri, contactId ->
-            if (screen.prefill == null) finishWith(uri)
-            else replace(Screen.Edit(contactId, screen.prefill))
+            if (screen.prefill == null) {
+                finishWith(uri)
+            } else {
+                replace(Screen.Edit(contactId, screen.prefill))
+            }
         }
     }
 }

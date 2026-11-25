@@ -17,10 +17,18 @@ import java.io.ByteArrayOutputStream
 import java.io.OutputStream
 
 private const val MAX_IMPORT_BYTES = 32 * 1024 * 1024
+private const val MAX_PHOTO_BYTES = 512 * 1024
 private const val EXPORT_CHUNK = 200
+private val ESCAPE = Regex("\\\\(.)")
 
-private data class Property(val name: String, val parameters: List<String>, val value: String) {
-    val types = parameters.flatMap { it.substringAfter('=').uppercase().split(',') }
+private data class Property(
+    val name: String,
+    val parameters: List<String>,
+    val value: String
+) {
+    val types = parameters.flatMap { parameter ->
+        parameter.substringAfter('=').uppercase().split(',').map { it.trim('"', ' ') }
+    }
     val parts get() = splitUnescaped(value).map(::unescape)
 }
 
@@ -42,13 +50,10 @@ private fun ContentResolver.writeChunk(keys: List<String>, output: OutputStream)
 
 fun ContentResolver.countVcards(source: Uri): Int = parse(read(source)).size
 
-fun ContentResolver.importVcards(source: Uri): Int {
-    val cards = parse(read(source))
-    cards.forEach { card ->
-        val operations = operations(card)
-        if (operations.size > 1) applyBatch(ContactsContract.AUTHORITY, ArrayList(operations))
-    }
-    return cards.size
+fun ContentResolver.importVcards(source: Uri): Int = parse(read(source)).count { card ->
+    val operations = ArrayList(operations(card))
+    operations.size > 1 &&
+        runCatching { applyBatch(ContactsContract.AUTHORITY, operations) }.isSuccess
 }
 
 private fun ContentResolver.read(source: Uri): String {
@@ -82,10 +87,12 @@ private fun parse(text: String): List<List<Property>> {
         val property = property(line, quoted) ?: continue
         when {
             property.name == "BEGIN" -> card = mutableListOf()
+
             property.name == "END" -> {
                 card?.let(cards::add)
                 card = null
             }
+
             else -> card?.add(property)
         }
     }
@@ -111,7 +118,7 @@ private fun decodeQuotedPrintable(text: String): String {
             bytes.write(hex)
             index += 3
         } else {
-            bytes.write(text[index].code)
+            bytes.write(text[index].toString().encodeToByteArray())
             index++
         }
     }
@@ -123,18 +130,24 @@ private fun splitUnescaped(value: String): List<String> {
     var escaped = false
     value.forEach { character ->
         when {
-            escaped -> parts.last().append('\\').append(character).also { escaped = false }
+            escaped -> parts.last().append('\\').append(character).also {
+                escaped = false
+            }
+
             character == '\\' -> escaped = true
+
             character == ';' -> parts += StringBuilder()
+
             else -> parts.last().append(character)
         }
     }
     return parts.map { it.toString() }
 }
 
-private fun unescape(value: String) = value
-    .replace(Regex("\\\\([nN])"), "\n")
-    .replace(Regex("\\\\(.)"), "$1")
+private fun unescape(value: String) = ESCAPE.replace(value) { match ->
+    val character = match.groupValues[1]
+    if (character == "n" || character == "N") "\n" else character
+}
 
 private fun operations(card: List<Property>): List<ContentProviderOperation> {
     val operations = mutableListOf(
@@ -208,7 +221,10 @@ private fun operations(card: List<Property>): List<ContentProviderOperation> {
             )
 
             "PHOTO" -> photo(property)?.let {
-                add(CommonDataKinds.Photo.CONTENT_ITEM_TYPE, CommonDataKinds.Photo.PHOTO to it)
+                add(
+                    CommonDataKinds.Photo.CONTENT_ITEM_TYPE,
+                    CommonDataKinds.Photo.PHOTO to it
+                )
             }
         }
     }
@@ -262,6 +278,6 @@ private fun photo(property: Property): ByteArray? {
     val encoded = property.value.substringAfter("base64,")
     val base64 = property.types.any { it == "B" || it == "BASE64" } ||
         property.value.startsWith("data:")
-    if (!base64) return null
+    if (!base64 || encoded.length > MAX_PHOTO_BYTES * 4 / 3 + 4) return null
     return runCatching { Base64.decode(encoded, Base64.DEFAULT) }.getOrNull()
 }

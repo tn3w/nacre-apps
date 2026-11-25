@@ -40,7 +40,11 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.withContext
 
 @Composable
-fun <T> rememberQuery(initial: T, vararg keys: Any?, load: ContentResolver.() -> T): State<T> {
+fun <T> rememberQuery(
+    initial: T,
+    vararg keys: Any?,
+    load: ContentResolver.() -> T
+): State<T> {
     val resolver = LocalContext.current.contentResolver
     return produceState(initial, *keys) {
         resolver.changes().collectLatest {

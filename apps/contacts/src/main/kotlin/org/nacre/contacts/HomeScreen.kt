@@ -79,7 +79,8 @@ fun HomeScreen(
         },
         bottomBar = {
             NavigationBar {
-                val icons = listOf(R.drawable.ic_person, R.drawable.ic_star, R.drawable.ic_tune)
+                val icons =
+                    listOf(R.drawable.ic_person, R.drawable.ic_star, R.drawable.ic_tune)
                 Tab.entries.zip(icons).forEach { (entry, icon) ->
                     NavigationBarItem(
                         selected = entry == tab,
@@ -117,7 +118,10 @@ private fun ContactList(onOpen: (Long) -> Unit) {
             Empty(if (query.isBlank()) "No contacts yet" else "No matches")
             return@Column
         }
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 88.dp)) {
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 88.dp)
+        ) {
             contactItems(list, query.isBlank()) { onOpen(it.id) }
         }
     }
@@ -160,7 +164,11 @@ fun ContactRow(contact: Contact, detail: String? = null, onClick: (Contact) -> U
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.clickable { onClick(contact) }.padding(horizontal = 8.dp)
     ) {
-        Text(contact.name.ifBlank { "No name" }, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            contact.name.ifBlank { "No name" },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -191,13 +199,19 @@ fun SearchField(query: String, onQuery: (String) -> Unit) {
 @Composable
 private fun Empty(text: String) {
     Box(Modifier.fillMaxSize().padding(32.dp), Alignment.Center) {
-        Text(text, color = MaterialTheme.colorScheme.outline, textAlign = TextAlign.Center)
+        Text(
+            text,
+            color = MaterialTheme.colorScheme.outline,
+            textAlign = TextAlign.Center
+        )
     }
 }
 
 @Composable
 private fun Favorites(onOpen: (Long) -> Unit) {
-    val favorites by rememberQuery<List<Contact>?>(null) { contacts().filter { it.starred } }
+    val favorites by rememberQuery<List<Contact>?>(null) {
+        contacts().filter { it.starred }
+    }
     val list = favorites ?: return
     if (list.isEmpty()) {
         Empty("No favorites yet.\nStar a contact to keep it here.")
@@ -237,10 +251,11 @@ private fun Manage(navigation: Navigation) {
     val importer = rememberLauncherForActivityResult(OpenDocument()) { uri ->
         navigation.importUri = uri
     }
-    val exporter = rememberLauncherForActivityResult(CreateDocument("text/x-vcard")) { uri ->
-        uri ?: return@rememberLauncherForActivityResult
-        scope.launch { context.export(uri) }
-    }
+    val exporter =
+        rememberLauncherForActivityResult(CreateDocument("text/x-vcard")) { uri ->
+            uri ?: return@rememberLauncherForActivityResult
+            scope.launch { context.export(uri) }
+        }
     LazyColumn(Modifier.fillMaxSize().statusBarsPadding()) {
         item {
             Text(
@@ -256,12 +271,15 @@ private fun Manage(navigation: Navigation) {
             Action("Import from file", "Add contacts from a .vcf file") {
                 importer.launch(VCARD_TYPES + "application/octet-stream")
             }
-            Action("Export to file", count?.let { "Save ${contactCount(it)} as a .vcf file" }) {
+            val exportDetail = count?.let { "Save ${contactCount(it)} as a .vcf file" }
+            Action("Export to file", exportDetail) {
                 exporter.launch("contacts.vcf")
             }
             Action("Blocked numbers", "Calls and texts you don't want") {
                 val telecom = context.getSystemService(TelecomManager::class.java)
-                runCatching { context.startActivity(telecom.createManageBlockedNumbersIntent()) }
+                runCatching {
+                    context.startActivity(telecom.createManageBlockedNumbersIntent())
+                }
             }
         }
     }
@@ -357,7 +375,10 @@ fun PickScreen(
     }
     Page(title, onBack) {
         SearchField(query) { query = it }
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 16.dp)
+        ) {
             if (creating) item { Action("Create new contact", null, onCreate) }
             contactItems(contacts, sections = false) { onPick(it.uri, it.id) }
             items(pickables, key = { it.uri.toString() }) { pickable ->

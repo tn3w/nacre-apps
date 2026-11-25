@@ -1,6 +1,7 @@
 package org.nacre.contacts
 
 import android.content.ClipData
+import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -33,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,14 +49,16 @@ import java.time.LocalDate
 import java.time.MonthDay
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.withContext
 
 private val HEADER_KINDS = setOf(Kind.Name, Kind.Organization)
 
 @Composable
 fun DetailsScreen(contactId: Long, onBack: () -> Unit, onEdit: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val details by rememberQuery<Details?>(null, contactId) { details(contactId) }
     var menu by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
@@ -62,13 +66,16 @@ fun DetailsScreen(contactId: Long, onBack: () -> Unit, onEdit: () -> Unit) {
 
     Page("", onBack, {
         current ?: return@Page
+        val starred = current.contact.starred
         IconButton(onClick = {
-            context.contentResolver.setStarred(contactId, !current.contact.starred)
+            scope.launch {
+                context.write { setStarred(contactId, !starred) }
+            }
         }) {
             Icon(
                 painterResource(R.drawable.ic_star),
-                if (current.contact.starred) "Remove from favorites" else "Add to favorites",
-                tint = if (current.contact.starred) {
+                if (starred) "Remove from favorites" else "Add to favorites",
+                tint = if (starred) {
                     MaterialTheme.colorScheme.primary
                 } else {
                     MaterialTheme.colorScheme.outlineVariant
@@ -98,11 +105,16 @@ fun DetailsScreen(contactId: Long, onBack: () -> Unit, onEdit: () -> Unit) {
             onDismissRequest = { deleting = false },
             title = { Text("Delete contact?") },
             text = { Text("${current.contact.name} will be removed from this device.") },
-            dismissButton = { TextButton(onClick = { deleting = false }) { Text("Cancel") } },
+            dismissButton = {
+                TextButton(onClick = { deleting = false }) { Text("Cancel") }
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    context.contentResolver.deleteContact(current.contact)
-                    onBack()
+                    deleting = false
+                    scope.launch {
+                        context.write { deleteContact(current.contact) }
+                        onBack()
+                    }
                 }) { Text("Delete") }
             }
         )
@@ -122,7 +134,11 @@ private fun DetailsContent(details: Details) {
                 Arrangement.spacedBy(8.dp),
                 Alignment.CenterHorizontally
             ) {
-                Avatar(details.contact.name, details.photo ?: details.contact.photo, 128.dp)
+                Avatar(
+                    details.contact.name,
+                    details.photo ?: details.contact.photo,
+                    128.dp
+                )
                 Text(
                     details.contact.name.ifBlank { "No name" },
                     style = MaterialTheme.typography.headlineMedium,
@@ -130,7 +146,9 @@ private fun DetailsContent(details: Details) {
                 )
                 organization?.let { row ->
                     Text(
-                        listOf(row.extra, row.value).filter { it.isNotBlank() }.joinToString(", "),
+                        listOf(row.extra, row.value).filter {
+                            it.isNotBlank()
+                        }.joinToString(", "),
                         color = MaterialTheme.colorScheme.outline
                     )
                 }
@@ -151,9 +169,16 @@ private fun DetailsContent(details: Details) {
 }
 
 @Composable
-private fun QuickAction(icon: Int, label: String, value: String?, onClick: (String) -> Unit) {
+private fun QuickAction(
+    icon: Int,
+    label: String,
+    value: String?,
+    onClick: (String) -> Unit
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        FilledTonalIconButton(onClick = { value?.let(onClick) }, enabled = value != null) {
+        FilledTonalIconButton(onClick = {
+            value?.let(onClick)
+        }, enabled = value != null) {
             Icon(painterResource(icon), null)
         }
         Text(label, style = MaterialTheme.typography.labelMedium)
@@ -192,7 +217,9 @@ private fun DetailRow(row: Row) {
         modifier = Modifier.combinedClickable(
             onLongClick = {
                 scope.launch {
-                    clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(label, row.value)))
+                    clipboard.setClipEntry(
+                        ClipEntry(ClipData.newPlainText(label, row.value))
+                    )
                 }
             },
             onClick = { context.act(row) }
@@ -212,18 +239,28 @@ private fun Context.act(row: Row) = when (row.kind) {
     Kind.Phone -> dial(row.value)
     Kind.Email -> open(Intent.ACTION_SENDTO, "mailto:${Uri.encode(row.value)}")
     Kind.Address -> open(Intent.ACTION_VIEW, "geo:0,0?q=${Uri.encode(row.value)}")
-    Kind.Website -> open(
-        Intent.ACTION_VIEW,
-        if ("://" in row.value) row.value else "https://${row.value}"
-    )
+    Kind.Website -> open(Intent.ACTION_VIEW, webUrl(row.value))
     else -> Unit
 }
 
-private fun Context.dial(number: String) = open(Intent.ACTION_DIAL, "tel:${Uri.encode(number)}")
+private suspend fun Context.write(action: ContentResolver.() -> Unit) =
+    withContext(Dispatchers.IO) { runCatching { contentResolver.action() } }
+
+private fun webUrl(value: String): String {
+    val web = listOf("http://", "https://").any {
+        value.startsWith(it, ignoreCase = true)
+    }
+    return if (web) value else "https://${value.substringAfter("://")}"
+}
+
+private fun Context.dial(number: String) =
+    open(Intent.ACTION_DIAL, "tel:${Uri.encode(number)}")
 
 private fun Context.open(action: String, uri: String) {
     runCatching { startActivity(Intent(action, Uri.parse(uri))) }
-        .onFailure { Toast.makeText(this, "No app can open this", Toast.LENGTH_SHORT).show() }
+        .onFailure {
+            Toast.makeText(this, "No app can open this", Toast.LENGTH_SHORT).show()
+        }
 }
 
 private fun Context.share(contact: Contact) {
