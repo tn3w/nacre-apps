@@ -14,18 +14,18 @@ class ClockApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         Store.init(this)
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(
-                RingService.CHANNEL,
-                "Ringing",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply { setSound(null, null) }
+        val low = NotificationManager.IMPORTANCE_LOW
+        val ringing = NotificationChannel(
+            RingService.CHANNEL,
+            "Ringing",
+            NotificationManager.IMPORTANCE_HIGH
         )
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(
-                Timer.CHANNEL,
-                "Timers",
-                NotificationManager.IMPORTANCE_LOW
+        ringing.setSound(null, null)
+        getSystemService(NotificationManager::class.java).createNotificationChannels(
+            listOf(
+                ringing,
+                NotificationChannel(Timer.CHANNEL, "Timers", low),
+                NotificationChannel(Alarm.UPCOMING_CHANNEL, "Upcoming alarms", low)
             )
         )
     }
@@ -83,8 +83,23 @@ object Store {
     fun deleteAlarm(alarm: Alarm) {
         alarms.value = alarms.value.filter { it.id != alarm.id }
         writeList("alarms", alarms.value.map(Alarm::toJson))
-        Scheduler.cancel(context, "alarm:${alarm.id}")
+        Scheduler.schedule(context, alarm.copy(enabled = false, snoozedUntil = 0))
         silence("alarm:${alarm.id}")
+    }
+
+    fun skip(id: Int) {
+        val alarm = alarm(id) ?: return
+        saveAlarm(
+            when {
+                alarm.snoozedUntil > System.currentTimeMillis() -> alarm.copy(
+                    snoozedUntil = 0
+                )
+
+                alarm.days.isEmpty() -> alarm.copy(enabled = false)
+
+                else -> alarm.copy(skipped = alarm.trigger() ?: 0)
+            }
+        )
     }
 
     fun snooze(id: Int) {

@@ -150,7 +150,7 @@ private fun AlarmCard(alarm: Alarm, expanded: Boolean, onExpand: () -> Unit) {
                     onCheckedChange = {
                         update(
                             context,
-                            alarm.copy(enabled = it, snoozedUntil = 0)
+                            alarm.copy(enabled = it, snoozedUntil = 0, skipped = 0)
                         )
                     }
                 )
@@ -167,15 +167,8 @@ private fun AlarmCard(alarm: Alarm, expanded: Boolean, onExpand: () -> Unit) {
         TimeDialog(alarm.hour, alarm.minute, onDismiss = {
             editingTime = false
         }) { hour, minute ->
-            update(
-                context,
-                alarm.copy(
-                    hour = hour,
-                    minute = minute,
-                    enabled = true,
-                    snoozedUntil = 0
-                )
-            )
+            val edited = alarm.copy(hour = hour, minute = minute, enabled = true)
+            update(context, edited.copy(snoozedUntil = 0, skipped = 0))
         }
     }
 }
@@ -308,13 +301,22 @@ private fun orderedDays(): List<DayOfWeek> {
 }
 
 private fun summary(alarm: Alarm, formatter: DateTimeFormatter): String {
-    val snoozed =
-        alarm.snoozedUntil.takeIf { it > System.currentTimeMillis() }?.let {
-            "Snoozed until ${Instant.ofEpochMilli(
-                it
-            ).atZone(ZoneId.systemDefault()).format(formatter)}"
-        }
-    return listOfNotNull(alarm.label.ifBlank { null }, snoozed ?: repeatText(alarm))
+    val now = System.currentTimeMillis()
+    val zone = ZoneId.systemDefault()
+    val snoozed = alarm.snoozedUntil.takeIf { it > now }?.let {
+        "Snoozed until " + Instant.ofEpochMilli(it).atZone(zone).format(formatter)
+    }
+    val skipping = alarm.skipped.takeIf { it > now }?.let {
+        val day = Instant.ofEpochMilli(it).atZone(zone).dayOfWeek
+        "Skipping " + day.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+    }
+    return listOfNotNull(
+        alarm.label.ifBlank {
+            null
+        },
+        snoozed ?: repeatText(alarm),
+        skipping
+    )
         .joinToString(" · ")
 }
 
