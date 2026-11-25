@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
 import kotlinx.coroutines.flow.MutableStateFlow
+import org.json.JSONArray
+import org.json.JSONObject
 
 class CalculatorApplication : Application() {
     override fun onCreate() {
@@ -12,6 +14,8 @@ class CalculatorApplication : Application() {
         Store.init(this)
     }
 }
+
+data class Entry(val expression: String, val result: String)
 
 data class Calculation(val expression: String = "", val evaluated: Boolean = false)
 
@@ -25,6 +29,7 @@ object Store {
     val error = MutableStateFlow<String?>(null)
     val scientific = MutableStateFlow(false)
     val degrees = MutableStateFlow(false)
+    val history = MutableStateFlow(emptyList<Entry>())
 
     fun init(context: Context) {
         val storage = context.createDeviceProtectedStorageContext()
@@ -35,6 +40,7 @@ object Store {
         )
         scientific.value = preferences.getBoolean("scientific", false)
         degrees.value = preferences.getBoolean("degrees", false)
+        history.value = readHistory()
     }
 
     fun setScientific(value: Boolean) {
@@ -71,13 +77,44 @@ object Store {
     fun clear() = update("")
 
     fun equals() {
-        val expression = calculation.value.expression
-        if (expression.isEmpty()) return
+        val (expression, evaluated) = calculation.value
+        if (expression.isEmpty() || evaluated) return
         try {
             val result = format(evaluate(expression, degrees.value))
             save(Calculation(result, evaluated = true))
+            saveHistory(listOf(Entry(expression, result)) + history.value.take(99))
         } catch (exception: CalculationException) {
             error.value = exception.message
+        }
+    }
+
+    fun recall(value: String) {
+        val (expression, evaluated) = calculation.value
+        update(if (evaluated) value else expression + value)
+    }
+
+    fun clearHistory() = saveHistory(emptyList())
+
+    private fun saveHistory(entries: List<Entry>) {
+        history.value = entries
+        val array = JSONArray(
+            entries.map {
+                JSONObject().put("expression", it.expression).put("result", it.result)
+            }
+        )
+        preferences.edit { putString("history", array.toString()) }
+    }
+
+    private fun readHistory(): List<Entry> {
+        val array = runCatching { JSONArray(preferences.getString("history", "[]")) }
+            .getOrDefault(JSONArray())
+        return List(array.length()) { array.optJSONObject(it) }.mapNotNull {
+            val expression = it?.optString("expression").orEmpty()
+            val result = it?.optString("result").orEmpty()
+            Entry(expression, result).takeIf {
+                expression.isNotEmpty() &&
+                    result.isNotEmpty()
+            }
         }
     }
 
