@@ -19,3 +19,21 @@ Minimal, private system apps for a GrapheneOS-like Android ROM. No Google, no ne
     <img src="apps/clock/readme/screens-light.png" alt="Clock screens">
   </picture>
 </p>
+
+<br>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/calculator/readme/badge-dark.png">
+    <img src="apps/calculator/readme/badge-light.png" width="243" alt="Calculator">
+  </picture>
+</p>
+
+<p align="center">Exact scientific calculator with history and an offline unit, currency and crypto converter.</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/calculator/readme/screens-dark.png">
+    <img src="apps/calculator/readme/screens-light.png" alt="Calculator screens">
+  </picture>
+</p>
