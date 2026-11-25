@@ -70,7 +70,8 @@ private val CRYPTO_UNITS = mapOf(
 )
 
 fun currencies(rates: Map<String, String>): List<Measure> = COINS.flatMap { coin ->
-    val usd = rates[coin.code]?.toBigDecimalOrNull() ?: BigDecimal(coin.usd)
+    val stored = rates[coin.code]?.toBigDecimalOrNull()?.takeIf { it.signum() > 0 }
+    val usd = stored ?: BigDecimal(coin.usd)
     val main = Measure(coin.code, coin.name, usd, rate = coin.code)
     val parts = CRYPTO_UNITS[coin.code].orEmpty().map { (symbol, name, share) ->
         Measure(symbol, name, usd.multiply(BigDecimal(share), precision))
