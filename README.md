@@ -55,3 +55,21 @@ Minimal, private system apps for a GrapheneOS-like Android ROM. No Google, no ne
     <img src="apps/contacts/readme/screens-light.png" alt="Contacts screens">
   </picture>
 </p>
+
+<br>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/phone/readme/badge-dark.png">
+    <img src="apps/phone/readme/badge-light.png" width="182" alt="Phone">
+  </picture>
+</p>
+
+<p align="center">Default dialer with recents, favorites, smart keypad search and a lock-screen call screen that works before first unlock.</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/phone/readme/screens-dark.png">
+    <img src="apps/phone/readme/screens-light.png" alt="Phone screens">
+  </picture>
+</p>
