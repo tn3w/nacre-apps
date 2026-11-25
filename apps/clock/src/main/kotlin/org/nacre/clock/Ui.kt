@@ -11,21 +11,25 @@ import java.util.Locale
 import kotlinx.coroutines.delay
 
 @Composable
-fun rememberNow(period: Long = 1000): State<Long> = produceState(System.currentTimeMillis()) {
-    while (true) {
-        value = System.currentTimeMillis()
-        delay(period - value % period)
+fun rememberNow(period: Long = 1000): State<Long> =
+    produceState(System.currentTimeMillis()) {
+        while (true) {
+            value = System.currentTimeMillis()
+            delay(period - value % period)
+        }
     }
-}
 
 @Composable
 fun timeFormatter(): DateTimeFormatter {
     val is24Hour = DateFormat.is24HourFormat(LocalContext.current)
-    return remember(is24Hour) { DateTimeFormatter.ofPattern(if (is24Hour) "HH:mm" else "h:mm a") }
+    return remember(is24Hour) {
+        DateTimeFormatter.ofPattern(if (is24Hour) "HH:mm" else "h:mm a")
+    }
 }
 
-fun dateFormatter(skeleton: String): DateTimeFormatter =
-    DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(Locale.getDefault(), skeleton))
+fun dateFormatter(skeleton: String): DateTimeFormatter = DateTimeFormatter.ofPattern(
+    DateFormat.getBestDateTimePattern(Locale.getDefault(), skeleton)
+)
 
 fun formatSpan(totalMinutes: Long): String {
     val hours = totalMinutes / 60

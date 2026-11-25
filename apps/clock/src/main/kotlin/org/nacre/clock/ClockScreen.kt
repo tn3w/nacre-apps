@@ -44,7 +44,8 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import kotlin.math.abs
 
-private val regions = Regex("(Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)/.+")
+private val regions =
+    Regex("(Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)/.+")
 
 fun cityName(zone: String) = zone.substringAfterLast('/').replace('_', ' ')
 
@@ -59,11 +60,15 @@ fun ClockScreen() {
     Box(Modifier.fillMaxSize()) {
         LazyColumn(contentPadding = PaddingValues(24.dp, 48.dp, 24.dp, 96.dp)) {
             item {
-                Text(here.format(formatter), fontSize = 80.sp, fontWeight = FontWeight.Light)
+                Text(
+                    here.format(formatter),
+                    fontSize = 80.sp,
+                    fontWeight = FontWeight.Light
+                )
                 Text(
                     here.format(dateFormatter("EEEEdMMMM")),
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.outline,
+                    color = MaterialTheme.colorScheme.outline
                 )
                 Spacer(Modifier.height(32.dp))
             }
@@ -71,7 +76,7 @@ fun ClockScreen() {
         }
         FloatingActionButton(
             onClick = { picking = true },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp)
         ) {
             Icon(painterResource(R.drawable.ic_add), "Add city")
         }
@@ -86,14 +91,14 @@ private fun ZoneRow(zone: String, here: ZonedDateTime, formatter: DateTimeFormat
 
     Row(
         Modifier.fillMaxWidth().padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
             Text(cityName(zone), style = MaterialTheme.typography.titleLarge)
             Text(
                 zoneDifference(here, there),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.outline
             )
         }
         Text(there.format(formatter), style = MaterialTheme.typography.headlineMedium)
@@ -101,18 +106,19 @@ private fun ZoneRow(zone: String, here: ZonedDateTime, formatter: DateTimeFormat
             Icon(
                 painterResource(R.drawable.ic_close),
                 "Remove $zone",
-                tint = MaterialTheme.colorScheme.outline,
+                tint = MaterialTheme.colorScheme.outline
             )
         }
     }
 }
 
 private fun zoneDifference(here: ZonedDateTime, there: ZonedDateTime): String {
-    val day = when (ChronoUnit.DAYS.between(here.toLocalDate(), there.toLocalDate())) {
-        -1L -> "Yesterday"
-        1L -> "Tomorrow"
-        else -> "Today"
-    }
+    val day =
+        when (ChronoUnit.DAYS.between(here.toLocalDate(), there.toLocalDate())) {
+            -1L -> "Yesterday"
+            1L -> "Tomorrow"
+            else -> "Today"
+        }
     val minutes = (there.offset.totalSeconds - here.offset.totalSeconds) / 60L
     if (minutes == 0L) return day
     val direction = if (minutes > 0) "ahead" else "behind"
@@ -123,10 +129,20 @@ private fun zoneDifference(here: ZonedDateTime, there: ZonedDateTime): String {
 private fun ZonePicker(onDismiss: () -> Unit) {
     var query by remember { mutableStateOf("") }
     val focus = remember { FocusRequester() }
-    val zones = remember {
-        ZoneId.getAvailableZoneIds().filter { it.matches(regions) }.sortedBy(::cityName)
-    }
-    val matches = zones.filter { it.replace('_', ' ').contains(query.trim(), ignoreCase = true) }
+    val zones =
+        remember {
+            ZoneId
+                .getAvailableZoneIds()
+                .filter {
+                    it.matches(
+                        regions
+                    )
+                }.sortedBy(::cityName)
+        }
+    val matches =
+        zones.filter {
+            it.replace('_', ' ').contains(query.trim(), ignoreCase = true)
+        }
 
     Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize()) {
@@ -134,19 +150,25 @@ private fun ZonePicker(onDismiss: () -> Unit) {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth().padding(16.dp).focusRequester(focus),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                16.dp
+                            ).focusRequester(focus),
                     placeholder = { Text("Search city") },
-                    singleLine = true,
+                    singleLine = true
                 )
                 LazyColumn {
                     items(matches, key = { it }) { zone ->
                         ListItem(
                             headlineContent = { Text(cityName(zone)) },
                             supportingContent = { Text(zoneDetails(zone)) },
-                            modifier = Modifier.clickable {
-                                Store.addZone(zone)
-                                onDismiss()
-                            },
+                            modifier =
+                                Modifier.clickable {
+                                    Store.addZone(zone)
+                                    onDismiss()
+                                }
                         )
                     }
                 }
@@ -158,6 +180,12 @@ private fun ZonePicker(onDismiss: () -> Unit) {
 }
 
 private fun zoneDetails(zone: String): String {
-    val offset = ZoneId.of(zone).rules.getOffset(Instant.now()).id.replace("Z", "")
+    val offset =
+        ZoneId
+            .of(zone)
+            .rules
+            .getOffset(Instant.now())
+            .id
+            .replace("Z", "")
     return "${zone.substringBefore('/')} · GMT$offset"
 }
