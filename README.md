@@ -73,3 +73,21 @@ Minimal, private system apps for a GrapheneOS-like Android ROM. No Google, no ne
     <img src="apps/phone/readme/screens-light.png" alt="Phone screens">
   </picture>
 </p>
+
+<br>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/messages/readme/badge-dark.png">
+    <img src="apps/messages/readme/badge-light.png" width="237" alt="Messages">
+  </picture>
+</p>
+
+<p align="center">Default SMS and MMS app with reactions, photos and files, hardened against zero-click attacks with images decoded in a sandbox.</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/messages/readme/screens-dark.png">
+    <img src="apps/messages/readme/screens-light.png" alt="Messages screens">
+  </picture>
+</p>
