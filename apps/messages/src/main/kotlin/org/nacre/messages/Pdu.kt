@@ -32,7 +32,6 @@ private const val TRANSACTION_ID = 0x98
 private const val VERSION_1_2 = 0x92
 private const val STATUS_RETRIEVED = 0x81
 private const val INSERT_ADDRESS = 0x81
-private const val UTF_8 = 106
 private const val CHARSET = 0x81
 private const val NAME = 0x85
 private const val NAME_TEXT = 0x97

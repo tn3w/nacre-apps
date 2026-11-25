@@ -18,11 +18,13 @@ import android.provider.Telephony.Mms
 import android.provider.Telephony.Sms
 import android.telephony.SmsMessage
 import android.telephony.SubscriptionManager
+import android.telephony.TelephonyManager
 import androidx.core.content.contentValuesOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import java.io.File
 import android.app.Person as NotificationPerson
 
 const val MESSAGES_CHANNEL = "messages"
@@ -105,11 +107,8 @@ private fun Context.receiveNotification(
     subscription: Int,
 ) {
     val pdu = runCatching { parsePdu(data) }.getOrNull() ?: return
-    if (pdu.type != TYPE_NOTIFICATION_IND || pdu.location.isEmpty() ||
-        pdu.from.isEmpty()
-    ) {
-        return
-    }
+    if (pdu.type != TYPE_NOTIFICATION_IND) return
+    if (pdu.location.isEmpty() || pdu.from.isEmpty()) return
     if (isBlocked(pdu.from) || isDuplicate(pdu.location)) return
     val thread = threadFor(listOf(pdu.from))
     val extra =
@@ -118,7 +117,7 @@ private fun Context.receiveNotification(
             Mms.EXPIRY to pdu.expiry,
             Mms.TRANSACTION_ID to pdu.transactionId.take(256),
             Mms.SUBJECT to pdu.subject.take(256),
-            Mms.SUBJECT_CHARSET to 106,
+            Mms.SUBJECT_CHARSET to UTF_8,
         )
     val uri =
         persistMms(
@@ -172,7 +171,7 @@ private fun Context.receiveDownload(uri: Uri) {
     val extra =
         contentValuesOf(
             Mms.SUBJECT to pdu.subject.take(256),
-            Mms.SUBJECT_CHARSET to 106,
+            Mms.SUBJECT_CHARSET to UTF_8,
             Mms.MESSAGE_ID to pdu.messageId.take(256),
             Mms.TRANSACTION_ID to pdu.transactionId.take(256),
         )
@@ -217,17 +216,11 @@ class StatusReceiver : BroadcastReceiver() {
                 }
 
                 MMS_DOWNLOADED -> {
-                    if (ok) {
-                        context.receiveDownload(
-                            uri,
-                        )
-                    } else {
-                        context.downloadFailed(uri)
-                    }
+                    if (ok) context.receiveDownload(uri) else context.downloadFailed(uri)
                 }
 
                 MMS_ACKNOWLEDGED -> {
-                    uri.path?.let { java.io.File(it).delete() }
+                    uri.path?.let { File(it).delete() }
                 }
             }
         }
@@ -345,16 +338,16 @@ class RespondService : Service() {
     ): Int {
         val text = intent?.getStringExtra(Intent.EXTRA_TEXT)
         val addresses = intent?.data?.let(::recipients).orEmpty()
-        if (intent?.action == "android.intent.action.RESPOND_VIA_MESSAGE" &&
-            !text.isNullOrBlank()
+        if (intent?.action != TelephonyManager.ACTION_RESPOND_VIA_MESSAGE ||
+            text.isNullOrBlank()
         ) {
-            scope.launch {
-                send(addresses, text, emptyList(), defaultSim())
-                stopSelf(startId)
-            }
+            stopSelf(startId)
             return START_NOT_STICKY
         }
-        stopSelf(startId)
+        scope.launch {
+            send(addresses, text, emptyList(), defaultSim())
+            stopSelf(startId)
+        }
         return START_NOT_STICKY
     }
 }

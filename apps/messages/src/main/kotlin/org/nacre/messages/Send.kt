@@ -9,7 +9,6 @@ import android.provider.Telephony.Mms
 import android.provider.Telephony.Sms
 import android.telephony.SmsManager
 import android.telephony.SmsMessage
-import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
 import androidx.core.content.FileProvider
 import androidx.core.content.contentValuesOf
@@ -19,7 +18,7 @@ import java.util.UUID
 private const val PROVIDER = "org.nacre.messages.files"
 private const val MMS_SIZE_FALLBACK = 300 * 1024
 private const val MMS_VERSION = 0x12
-private const val UTF_8 = 106
+const val UTF_8 = 106
 const val STATE_DOWNLOADING = 0x81
 const val STATE_FAILED = 0x87
 
@@ -30,8 +29,7 @@ data class Sim(
 
 fun Context.sims(): List<Sim> {
     val manager = getSystemService(SubscriptionManager::class.java)
-    val list: List<SubscriptionInfo> =
-        runCatching { manager.activeSubscriptionInfoList }.getOrNull().orEmpty()
+    val list = runCatching { manager.activeSubscriptionInfoList }.getOrNull().orEmpty()
     return list.map {
         Sim(
             it.subscriptionId,
@@ -241,10 +239,7 @@ private fun Context.storedParts(id: Long): List<Part> =
         }.orEmpty()
 
 private fun Context.pduFile(name: String): File =
-    File(cacheDir, "mms")
-        .apply {
-            mkdirs()
-        }.resolve(name)
+    File(cacheDir, "mms").apply { mkdirs() }.resolve(name)
 
 private fun Context.shareWithMmsService(file: File): Uri {
     val uri = FileProvider.getUriForFile(this, PROVIDER, file)
@@ -334,9 +329,8 @@ fun Context.acknowledge(
     runCatching {
         file.writeBytes(encodeNotifyResponse(transactionId))
         val intent = statusIntent(StatusReceiver.MMS_ACKNOWLEDGED, Uri.fromFile(file))
-        smsManager(
-            subscription,
-        ).sendMultimediaMessage(this, shareWithMmsService(file), null, null, intent)
+        smsManager(subscription)
+            .sendMultimediaMessage(this, shareWithMmsService(file), null, null, intent)
     }.onFailure { file.delete() }
 }
 

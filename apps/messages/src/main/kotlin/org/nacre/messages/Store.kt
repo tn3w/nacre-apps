@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Process
 import androidx.core.content.edit
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONObject
@@ -14,7 +15,7 @@ private const val DRAFT_LIMIT = 4000
 class MessagesApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        if (android.os.Process.isIsolated()) return
+        if (Process.isIsolated()) return
         Store.init(this)
         val channel =
             NotificationChannel(

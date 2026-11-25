@@ -12,8 +12,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
-import androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -136,11 +135,15 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun Setup() {
         val permissions =
-            rememberLauncherForActivityResult(RequestMultiplePermissions()) {
+            rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestMultiplePermissions(),
+            ) {
                 navigation.ready = isReady()
             }
         val role =
-            rememberLauncherForActivityResult(StartActivityForResult()) {
+            rememberLauncherForActivityResult(
+                ActivityResultContracts.StartActivityForResult(),
+            ) {
                 navigation.ready = isReady()
                 if (isDefault() &&
                     !navigation.ready
@@ -176,13 +179,7 @@ class MainActivity : ComponentActivity() {
                 val body = intent.getStringExtra("sms_body") ?: data?.body()
                 share(body ?: intent.getStringExtra(Intent.EXTRA_TEXT), emptyList())
                 if (addresses.isEmpty()) {
-                    return if (data ==
-                        null
-                    ) {
-                        emptyList()
-                    } else {
-                        listOf(Screen.New)
-                    }
+                    return if (data == null) emptyList() else listOf(Screen.New)
                 }
                 val thread = runCatching { threadFor(addresses) }.getOrNull()
                 return listOf(thread?.let(Screen::Thread) ?: Screen.New)
@@ -212,10 +209,7 @@ class MainActivity : ComponentActivity() {
     private fun Intent.streams(): List<Uri> {
         val single = getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
         val many =
-            getParcelableArrayListExtra(
-                Intent.EXTRA_STREAM,
-                Uri::class.java,
-            ).orEmpty()
+            getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
         return (listOfNotNull(single) + many)
             .filter {
                 it.scheme == ContentResolver.SCHEME_CONTENT &&

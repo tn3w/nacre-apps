@@ -241,10 +241,8 @@ fun Context.conversations(): List<Conversation> {
     val uri =
         Threads.CONTENT_URI
             .buildUpon()
-            .appendQueryParameter(
-                "simple",
-                "true",
-            ).build()
+            .appendQueryParameter("simple", "true")
+            .build()
     val columns =
         arrayOf(
             Threads._ID,
@@ -274,10 +272,7 @@ fun Context.conversations(): List<Conversation> {
 }
 
 fun Context.conversation(thread: Long): Conversation? =
-    conversations().find {
-        it.id ==
-            thread
-    }
+    conversations().find { it.id == thread }
 
 fun Context.threadFor(addresses: List<String>): Long =
     Threads.getOrCreateThreadId(this, addresses.toSet())
@@ -365,8 +360,8 @@ private fun Context.mms(cursor: Cursor): Message =
             subscription = int(Mms.SUBSCRIPTION_ID),
             attachments =
                 parts.map { it.first }.filter {
-                    it.type != "text/plain" &&
-                        it.type != "application/smil"
+                    it.type !in
+                        listOf("text/plain", "application/smil")
                 },
             pending =
                 if (notification) {
@@ -623,17 +618,14 @@ fun List<Message>.withReactions(): List<Shown> {
         val reaction = parseReaction(message.body)
         val target =
             reaction?.let { parsed ->
-                shown.lastOrNull {
-                    it.body.isNotEmpty() &&
-                        it.body.startsWith(parsed.quote)
-                }
+                shown.lastOrNull { it.body.startsWith(parsed.quote) }
             }
         if (reaction == null || target == null) {
             shown += message
             continue
         }
         val list = reactions.getOrPut(target.key) { mutableListOf() }
-        val sender = message.address.ifEmpty { "me" }
+        val sender = if (message.incoming) message.address else "me"
         list.removeAll { it.first == sender }
         if (!reaction.removed) list += sender to reaction.emoji
     }

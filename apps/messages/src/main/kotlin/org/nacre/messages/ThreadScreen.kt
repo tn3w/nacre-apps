@@ -145,7 +145,11 @@ fun ThreadScreen(
                     IconButton(onClick = { context.showContact(single) }) {
                         Icon(
                             painterResource(
-                                if (single.known) R.drawable.ic_person else R.drawable.ic_person_add,
+                                if (single.known) {
+                                    R.drawable.ic_person
+                                } else {
+                                    R.drawable.ic_person_add
+                                },
                             ),
                             if (single.known) "View contact" else "Add contact",
                         )
@@ -341,55 +345,50 @@ private fun Bubble(
                 color = colors.outline,
             )
         }
-        Box {
-            Column(
-                Modifier
-                    .widthIn(max = 300.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(container)
-                    .combinedClickable(
-                        onClick = {
-                            if (failed) {
-                                scope.launch(
-                                    Dispatchers.IO,
-                                ) { context.retry(message) }
-                            }
-                        },
-                        onLongClick = onMenu,
-                    ),
-            ) {
-                message.attachments.forEach { attachment ->
-                    if (attachment.isImage) {
-                        Thumbnail(
-                            attachment.uri,
-                        ) { navigation.push(Screen.Viewer(attachment.uri)) }
-                    } else {
-                        SaveChip(attachment)
+        Column(
+            Modifier
+                .widthIn(max = 300.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(container)
+                .combinedClickable(
+                    onClick = {
+                        if (!failed) return@combinedClickable
+                        scope.launch(Dispatchers.IO) { context.retry(message) }
+                    },
+                    onLongClick = onMenu,
+                ),
+        ) {
+            message.attachments.forEach { attachment ->
+                if (attachment.isImage) {
+                    Thumbnail(attachment.uri) {
+                        navigation.push(Screen.Viewer(attachment.uri))
                     }
+                } else {
+                    SaveChip(attachment)
                 }
-                message.pending?.let { Pending(message, it) }
-                if (message.body.isNotEmpty()) {
-                    Text(
-                        linkified(message.body, content) { link = it },
-                        Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        color = content,
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                }
+            }
+            message.pending?.let { Pending(message, it) }
+            if (message.body.isNotEmpty()) {
+                Text(
+                    linkified(message.body, content) { link = it },
+                    Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    color = content,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
             }
         }
         if (reactions.isNotEmpty()) {
+            val counts = reactions.groupingBy { it }.eachCount().entries
             Text(
-                reactions.groupingBy { it }.eachCount().entries.joinToString(
-                    " ",
-                ) { (emoji, count) ->
+                counts.joinToString(" ") { (emoji, count) ->
                     if (count > 1) "$emoji $count" else emoji
                 },
                 Modifier
                     .padding(horizontal = 8.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(colors.surfaceVariant)
+                    .background(container)
                     .padding(horizontal = 8.dp, vertical = 2.dp),
+                color = content,
             )
         }
         if (last || failed || message.box == Box.Outbox) {
@@ -619,6 +618,7 @@ private fun DetailsDialog(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
+    val sims = remember { context.sims() }
     val date =
         DateUtils.formatDateTime(
             context,
@@ -630,17 +630,14 @@ private fun DetailsDialog(
         listOfNotNull(
             "Type" to if (message.mms) "Multimedia message" else "Text message",
             if (message.incoming) {
-                "From" to
-                    context.displayAddress(
-                        message.address,
-                    )
+                "From" to context.displayAddress(message.address)
             } else {
                 null
             },
             (if (message.incoming) "Received" else "Sent") to date,
             "Status" to status(message).substringAfter(" · "),
-            message.subscription.takeIf { it >= 0 && context.sims().size > 1 }?.let { id ->
-                "SIM" to (context.sims().find { it.id == id }?.label ?: "SIM")
+            sims.find { it.id == message.subscription }?.takeIf { sims.size > 1 }?.let {
+                "SIM" to it.label
             },
         )
     AlertDialog(
@@ -776,27 +773,20 @@ private fun SaveChip(attachment: Attachment) {
     val scope = rememberCoroutineScope()
     val save =
         rememberLauncherForActivityResult(
-            CreateDocument(
-                attachment.type.ifEmpty {
-                    "application/octet-stream"
-                },
-            ),
+            CreateDocument(attachment.type.ifEmpty { "application/octet-stream" }),
         ) { target ->
             target ?: return@rememberLauncherForActivityResult
             scope.launch(Dispatchers.IO) {
                 val copied =
                     runCatching {
-                        context.contentResolver.openInputStream(attachment.uri)!!.use { input ->
-                            context.contentResolver
-                                .openOutputStream(
-                                    target,
-                                )!!
-                                .use { input.copyTo(it) }
+                        val resolver = context.contentResolver
+                        resolver.openInputStream(attachment.uri)!!.use { input ->
+                            resolver.openOutputStream(target)!!.use { input.copyTo(it) }
                         }
                     }.isSuccess
-                withContext(
-                    Dispatchers.Main,
-                ) { context.toast(if (copied) "Saved" else "Couldn't save") }
+                withContext(Dispatchers.Main) {
+                    context.toast(if (copied) "Saved" else "Couldn't save")
+                }
             }
         }
     AssistChip(

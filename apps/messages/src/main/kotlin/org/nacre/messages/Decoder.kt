@@ -13,6 +13,7 @@ import android.os.IBinder
 import android.os.Parcel
 import android.os.ParcelFileDescriptor
 import android.os.SharedMemory
+import android.system.OsConstants
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -34,9 +35,7 @@ class DecoderService : Service() {
                 reply: Parcel?,
                 flags: Int,
             ): Boolean {
-                if (code != DECODE ||
-                    reply == null
-                ) {
+                if (code != DECODE || reply == null) {
                     return super.onTransact(code, data, reply, flags)
                 }
                 val input = data.readFileDescriptor()
@@ -79,18 +78,13 @@ class DecoderService : Service() {
                 )
             }
         val argb =
-            if (bitmap.config ==
-                Bitmap.Config.ARGB_8888
-            ) {
-                bitmap
-            } else {
-                bitmap.copy(Bitmap.Config.ARGB_8888, false)
-            }
+            bitmap.takeIf { it.config == Bitmap.Config.ARGB_8888 }
+                ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
         val memory = SharedMemory.create("pixels", argb.byteCount)
         val buffer = memory.mapReadWrite()
         argb.copyPixelsToBuffer(buffer)
         SharedMemory.unmap(buffer)
-        memory.setProtect(android.system.OsConstants.PROT_READ)
+        memory.setProtect(OsConstants.PROT_READ)
         return argb to memory
     }
 }

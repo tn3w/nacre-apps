@@ -186,7 +186,12 @@ private fun ConversationRow(
                         draft != null -> "Draft: $draft"
                         else -> conversation.snippet.ifEmpty { "Multimedia message" }
                     },
-                    color = if (unread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
+                    color =
+                        if (unread) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.outline
+                        },
                     fontWeight = if (unread) FontWeight.Bold else null,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -303,7 +308,8 @@ fun ConversationMenu(
         val address = conversation.addresses.first()
         Confirm(
             "Block ${context.displayAddress(address)}?",
-            "You won't get calls or texts from this number. The conversation is archived.",
+            "You won't get calls or texts from this number. " +
+                "The conversation is archived.",
             "Block",
             onDismiss = { blocking = false },
         ) {
@@ -589,7 +595,8 @@ fun SettingsScreen(
                     }
                 }
                 Text(
-                    "Pictures and group texts from others are fetched only when you tap Download.",
+                    "Pictures and group texts from others are fetched only " +
+                        "when you tap Download.",
                     color = MaterialTheme.colorScheme.outline,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 8.dp),
