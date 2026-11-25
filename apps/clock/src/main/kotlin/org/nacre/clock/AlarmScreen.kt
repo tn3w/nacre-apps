@@ -41,6 +41,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,11 +69,11 @@ import java.time.temporal.WeekFields
 import java.util.Locale
 
 @Composable
-fun AlarmScreen() {
+fun AlarmScreen(creatingAlarm: MutableState<Boolean>) {
     val context = LocalContext.current
     val alarms by Store.alarms.collectAsState()
     var expanded by rememberSaveable { mutableStateOf<Int?>(null) }
-    var creating by remember { mutableStateOf(false) }
+    var creating by creatingAlarm
     var settings by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize()) {

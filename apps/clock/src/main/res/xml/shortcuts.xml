@@ -1,0 +1,33 @@
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+  <shortcut
+    android:icon="@drawable/shortcut_alarm"
+    android:shortcutId="new_alarm"
+    android:shortcutShortLabel="@string/shortcut_new_alarm">
+    <intent
+      android:action="android.intent.action.SET_ALARM"
+      android:targetClass="org.nacre.clock.MainActivity"
+      android:targetPackage="org.nacre.clock" />
+  </shortcut>
+
+  <shortcut
+    android:icon="@drawable/shortcut_timer"
+    android:shortcutId="timer"
+    android:shortcutShortLabel="@string/shortcut_timer">
+    <intent
+      android:action="android.intent.action.SHOW_TIMERS"
+      android:targetClass="org.nacre.clock.MainActivity"
+      android:targetPackage="org.nacre.clock" />
+  </shortcut>
+
+  <shortcut
+    android:icon="@drawable/shortcut_stopwatch"
+    android:shortcutId="stopwatch"
+    android:shortcutShortLabel="@string/shortcut_stopwatch">
+    <intent
+      android:action="android.intent.action.VIEW"
+      android:targetClass="org.nacre.clock.MainActivity"
+      android:targetPackage="org.nacre.clock">
+      <extra android:name="tab" android:value="Stopwatch" />
+    </intent>
+  </shortcut>
+</shortcuts>

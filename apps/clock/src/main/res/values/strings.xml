@@ -1,0 +1,5 @@
+<resources>
+  <string name="shortcut_new_alarm">New alarm</string>
+  <string name="shortcut_timer">Timer</string>
+  <string name="shortcut_stopwatch">Stopwatch</string>
+</resources>

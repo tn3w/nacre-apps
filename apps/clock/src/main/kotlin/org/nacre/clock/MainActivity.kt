@@ -41,6 +41,7 @@ fun openTab(context: Context, tab: Tab): PendingIntent = PendingIntent.getActivi
 
 class MainActivity : ComponentActivity() {
     private val tab = mutableStateOf(Tab.Alarm)
+    private val creatingAlarm = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,7 +50,7 @@ class MainActivity : ComponentActivity() {
         tab.value = Tab.valueOf(savedInstanceState?.getString("tab") ?: Tab.Alarm.name)
         if (savedInstanceState == null) handle(intent)
         if (intent.getBooleanExtra(AlarmClock.EXTRA_SKIP_UI, false)) return finish()
-        setContent { NacreTheme { ClockApp(tab) } }
+        setContent { NacreTheme { ClockApp(tab, creatingAlarm) } }
 
         val permission = Manifest.permission.POST_NOTIFICATIONS
         if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
@@ -81,7 +82,10 @@ class MainActivity : ComponentActivity() {
 
     private fun setAlarm(intent: Intent) {
         tab.value = Tab.Alarm
-        if (!intent.hasExtra(AlarmClock.EXTRA_HOUR)) return
+        if (!intent.hasExtra(AlarmClock.EXTRA_HOUR)) {
+            creatingAlarm.value = true
+            return
+        }
         val days = intent.getIntegerArrayListExtra(AlarmClock.EXTRA_DAYS).orEmpty()
             .map { DayOfWeek.of((it + 5) % 7 + 1) }
         val alarm = Store.newAlarm(
@@ -110,7 +114,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun ClockApp(tab: MutableState<Tab>) {
+fun ClockApp(tab: MutableState<Tab>, creatingAlarm: MutableState<Boolean>) {
     Scaffold(
         bottomBar = {
             NavigationBar {
@@ -127,7 +131,7 @@ fun ClockApp(tab: MutableState<Tab>) {
     ) { padding ->
         Box(Modifier.padding(padding)) {
             when (tab.value) {
-                Tab.Alarm -> AlarmScreen()
+                Tab.Alarm -> AlarmScreen(creatingAlarm)
                 Tab.Clock -> ClockScreen()
                 Tab.Timer -> TimerScreen()
                 Tab.Stopwatch -> StopwatchScreen()
