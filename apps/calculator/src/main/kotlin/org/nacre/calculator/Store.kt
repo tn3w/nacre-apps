@@ -23,6 +23,7 @@ data class Calculation(val expression: String = "", val evaluated: Boolean = fal
 private const val OPERATORS = "+−×÷^"
 private const val PASTABLE = "0123456789.+−×÷^%!()πeE√"
 private const val OPERAND_ENDS = "0123456789.)πe!%"
+private const val MAX_LENGTH = 1000
 
 object Store {
     private lateinit var preferences: SharedPreferences
@@ -37,7 +38,7 @@ object Store {
     fun init(context: Context) {
         preferences = context.getSharedPreferences("calculator", Context.MODE_PRIVATE)
         calculation.value = Calculation(
-            preferences.getString("expression", "").orEmpty(),
+            preferences.getString("expression", "").orEmpty().take(MAX_LENGTH),
             preferences.getBoolean("evaluated", false)
         )
         scientific.value = preferences.getBoolean("scientific", false)
@@ -162,7 +163,10 @@ object Store {
         }
     }
 
-    private fun update(expression: String) = save(Calculation(expression))
+    private fun update(expression: String) {
+        if (expression.length > MAX_LENGTH) return
+        save(Calculation(expression))
+    }
 
     private fun save(value: Calculation) {
         calculation.value = value
