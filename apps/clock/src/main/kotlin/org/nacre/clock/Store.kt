@@ -40,9 +40,11 @@ object Store {
     val timers = MutableStateFlow(emptyList<Timer>())
     val stopwatch = MutableStateFlow(Stopwatch())
 
-    val snoozeMinutes get() = 10
-    val silenceMinutes get() = 10
-    val rampSeconds get() = 30
+    operator fun get(option: Option) = preferences.getInt(option.name, option.default)
+
+    operator fun set(option: Option, value: Int) {
+        preferences.edit().putInt(option.name, value).apply()
+    }
 
     fun init(application: Context) {
         context = application
@@ -104,7 +106,7 @@ object Store {
 
     fun snooze(id: Int) {
         val alarm = alarm(id) ?: return
-        val until = System.currentTimeMillis() + snoozeMinutes * 60_000L
+        val until = System.currentTimeMillis() + Store[Option.Snooze] * 60_000L
         saveAlarm(alarm.copy(snoozedUntil = until))
     }
 

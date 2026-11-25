@@ -31,6 +31,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -71,12 +72,25 @@ fun AlarmScreen() {
     val alarms by Store.alarms.collectAsState()
     var expanded by rememberSaveable { mutableStateOf<Int?>(null) }
     var creating by remember { mutableStateOf(false) }
+    var settings by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             contentPadding = PaddingValues(16.dp, 24.dp, 16.dp, 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Alarms",
+                        Modifier.weight(1f).padding(start = 4.dp),
+                        style = MaterialTheme.typography.headlineMedium
+                    )
+                    IconButton(onClick = { settings = true }) {
+                        Icon(painterResource(R.drawable.ic_more), "Settings")
+                    }
+                }
+            }
             items(alarms, key = { it.id }) { alarm ->
                 AlarmCard(alarm, expanded == alarm.id) {
                     expanded = if (expanded == alarm.id) null else alarm.id
@@ -97,6 +111,8 @@ fun AlarmScreen() {
             Icon(painterResource(R.drawable.ic_add), "Add alarm")
         }
     }
+
+    if (settings) SettingsDialog(onDismiss = { settings = false })
 
     if (creating) {
         val now = LocalTime.now()

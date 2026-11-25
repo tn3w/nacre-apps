@@ -101,12 +101,13 @@ class RingService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
         )
         if (ringing.vibrate) vibrate()
-        sound =
-            scope.launch {
-                play(ringing.ringtone)
-                delay(Store.silenceMinutes * 60_000L)
-                stop()
-            }
+        sound = scope.launch {
+            launch { play(ringing.ringtone) }
+            val minutes = Store[Option.Silence]
+            if (minutes == 0) return@launch
+            delay(minutes * 60_000L)
+            stop()
+        }
     }
 
     private fun describe(uri: Uri): Ringing? {
@@ -116,14 +117,8 @@ class RingService : Service() {
             return Ringing(uri, timer.label.ifEmpty { "Time's up" }, null, true)
         }
         val alarm = Store.alarm(id) ?: return null
-        return Ringing(
-            uri,
-            alarm.label.ifEmpty {
-                "Alarm"
-            },
-            alarm.ringtone,
-            alarm.vibrate
-        )
+        val title = alarm.label.ifEmpty { "Alarm" }
+        return Ringing(uri, title, alarm.ringtone, alarm.vibrate)
     }
 
     private suspend fun play(ringtone: String?) {
@@ -137,7 +132,7 @@ class RingService : Service() {
         this.player = player
         player.setVolume(0f, 0f)
         player.start()
-        val steps = maxOf(1, Store.rampSeconds * 10)
+        val steps = maxOf(1, Store[Option.Ramp] * 10)
         for (step in 1..steps) {
             val volume = step.toFloat() / steps
             player.setVolume(volume * volume, volume * volume)
