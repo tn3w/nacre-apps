@@ -2,6 +2,7 @@ package org.nacre.calculator
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -37,6 +38,24 @@ class MainActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putString("page", page.value.name)
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (page.value != Page.Calculator || event.action != KeyEvent.ACTION_DOWN) {
+            return super.dispatchKeyEvent(event)
+        }
+        val handled = when (event.keyCode) {
+            KeyEvent.KEYCODE_DEL -> true.also { Store.delete() }
+
+            KeyEvent.KEYCODE_ESCAPE, KeyEvent.KEYCODE_CLEAR -> true.also { Store.clear() }
+
+            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> true.also {
+                Store.equals()
+            }
+
+            else -> Store.typeCharacter(event.unicodeChar.toChar())
+        }
+        return handled || super.dispatchKeyEvent(event)
     }
 
     private fun handle(intent: Intent) {

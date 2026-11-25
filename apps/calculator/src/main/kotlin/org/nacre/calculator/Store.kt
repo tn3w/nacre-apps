@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import java.text.DecimalFormatSymbols
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
@@ -20,6 +21,7 @@ data class Entry(val expression: String, val result: String)
 data class Calculation(val expression: String = "", val evaluated: Boolean = false)
 
 private const val OPERATORS = "+−×÷^"
+private const val PASTABLE = "0123456789.+−×÷^%!()πeE√"
 private const val OPERAND_ENDS = "0123456789.)πe!%"
 
 object Store {
@@ -91,6 +93,34 @@ object Store {
     fun recall(value: String) {
         val (expression, evaluated) = calculation.value
         update(if (evaluated) value else expression + value)
+    }
+
+    fun copyText(): String {
+        val (expression, evaluated) = calculation.value
+        val value = if (evaluated) expression else preview() ?: expression
+        return value.replace('−', '-').replace('×', '*').replace('÷', '/')
+    }
+
+    fun paste(text: String) {
+        val symbols = DecimalFormatSymbols.getInstance()
+        val cleaned = text.trim()
+            .replace(symbols.groupingSeparator.toString(), "")
+            .replace(symbols.decimalSeparator, '.')
+            .replace('-', '−').replace('*', '×').replace('/', '÷')
+            .filter { it in PASTABLE }
+        if (cleaned.isNotEmpty()) recall(cleaned)
+    }
+
+    fun typeCharacter(character: Char): Boolean {
+        val key = when (character) {
+            '-' -> "−"
+            '*' -> "×"
+            '/' -> "÷"
+            '=', '\n' -> return true.also { equals() }
+            else -> character.toString().takeIf { character in "0123456789.+^!%()" }
+        } ?: return false
+        press(key)
+        return true
     }
 
     fun clearHistory() = saveHistory(emptyList())

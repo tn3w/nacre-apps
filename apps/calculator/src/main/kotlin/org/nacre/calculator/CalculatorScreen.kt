@@ -1,5 +1,7 @@
 package org.nacre.calculator
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -17,6 +19,8 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -26,12 +30,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -99,6 +105,7 @@ fun CalculatorScreen(actions: @Composable () -> Unit = {}) {
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun Display(modifier: Modifier) {
     val calculation by Store.calculation.collectAsState()
     val error by Store.error.collectAsState()
@@ -110,7 +117,29 @@ private fun Display(modifier: Modifier) {
         else -> 40.sp
     }
 
-    Column(modifier.padding(8.dp), Arrangement.Bottom, Alignment.End) {
+    val clipboard = LocalContext.current.getSystemService(ClipboardManager::class.java)
+    var menu by remember { mutableStateOf(false) }
+    Column(
+        modifier.combinedClickable(onLongClick = {
+            menu = true
+        }, onClick = {}).padding(8.dp),
+        Arrangement.Bottom,
+        Alignment.End
+    ) {
+        DropdownMenu(menu, { menu = false }) {
+            DropdownMenuItem({ Text("Copy") }, {
+                clipboard.setPrimaryClip(
+                    ClipData.newPlainText("Result", Store.copyText())
+                )
+                menu = false
+            })
+            DropdownMenuItem({ Text("Paste") }, {
+                clipboard.primaryClip?.getItemAt(0)?.text?.let {
+                    Store.paste(it.toString())
+                }
+                menu = false
+            })
+        }
         Text(
             expression,
             Modifier.weight(1f, fill = false).verticalScroll(
