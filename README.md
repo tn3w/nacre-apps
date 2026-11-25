@@ -37,3 +37,21 @@ Minimal, private system apps for a GrapheneOS-like Android ROM. No Google, no ne
     <img src="apps/calculator/readme/screens-light.png" alt="Calculator screens">
   </picture>
 </p>
+
+<br>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/contacts/readme/badge-dark.png">
+    <img src="apps/contacts/readme/badge-light.png" width="222" alt="Contacts">
+  </picture>
+</p>
+
+<p align="center">On-device address book with favorites, vCard import and export, and full system integration.</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/contacts/readme/screens-dark.png">
+    <img src="apps/contacts/readme/screens-light.png" alt="Contacts screens">
+  </picture>
+</p>
