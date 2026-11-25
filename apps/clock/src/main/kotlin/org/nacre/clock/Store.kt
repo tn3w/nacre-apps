@@ -38,6 +38,7 @@ object Store {
     val zones = MutableStateFlow(emptyList<String>())
     val alarms = MutableStateFlow(emptyList<Alarm>())
     val timers = MutableStateFlow(emptyList<Timer>())
+    val stopwatch = MutableStateFlow(Stopwatch())
 
     val snoozeMinutes get() = 10
     val silenceMinutes get() = 10
@@ -50,6 +51,9 @@ object Store {
             preferences.getString("zones", "")!!.split(",").filter { it.isNotEmpty() }
         alarms.value = readList("alarms", Alarm::fromJson)
         timers.value = readList("timers", Timer::fromJson)
+        preferences.getString("stopwatch", null)?.let {
+            stopwatch.value = Stopwatch.fromJson(JSONObject(it))
+        }
     }
 
     fun addZone(zone: String) = saveZones(zones.value - zone + zone)
@@ -115,6 +119,12 @@ object Store {
         Scheduler.cancel(context, "timer:${timer.id}")
         notifyTimer(context, timer.reset())
         silence("timer:${timer.id}")
+    }
+
+    fun saveStopwatch(value: Stopwatch) {
+        stopwatch.value = value
+        preferences.edit().putString("stopwatch", value.toJson().toString()).apply()
+        notifyStopwatch(context, value)
     }
 
     private fun silence(uri: String) {

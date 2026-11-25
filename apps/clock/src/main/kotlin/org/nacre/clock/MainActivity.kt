@@ -26,7 +26,8 @@ import org.nacre.core.NacreTheme
 enum class Tab(val label: String, val icon: Int) {
     Alarm("Alarm", R.drawable.ic_alarm),
     Clock("Clock", R.drawable.ic_clock),
-    Timer("Timer", R.drawable.ic_timer)
+    Timer("Timer", R.drawable.ic_timer),
+    Stopwatch("Stopwatch", R.drawable.ic_stopwatch)
 }
 
 fun openTab(context: Context, tab: Tab): PendingIntent = PendingIntent.getActivity(
@@ -88,6 +89,7 @@ fun ClockApp(tab: MutableState<Tab>) {
                 Tab.Alarm -> AlarmScreen()
                 Tab.Clock -> ClockScreen()
                 Tab.Timer -> TimerScreen()
+                Tab.Stopwatch -> StopwatchScreen()
             }
         }
     }
