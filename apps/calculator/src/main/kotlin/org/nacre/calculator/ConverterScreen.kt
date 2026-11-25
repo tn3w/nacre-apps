@@ -109,7 +109,9 @@ fun ConverterScreen(onBack: () -> Unit) {
         }
         LazyColumn(Modifier.imePadding()) {
             items(units.filter { it !== source }, key = { it.symbol }) { unit ->
-                val value = base?.let { format(unit.fromBase(it), digits = 10) }
+                val value = base?.let {
+                    runCatching { format(unit.fromBase(it), digits = 10) }.getOrNull()
+                }
                 UnitRow(
                     unit,
                     value,
