@@ -5,9 +5,10 @@ from pathlib import Path
 
 SIZE = 256
 PADDING = 12
+DRIFT = 55
 TONES = {"black": ("#000", "#fff"), "white": ("#fff", "#000")}
 
-FILTER = """<filter id="sheen" filterUnits="userSpaceOnUse" x="0" y="0"
+FILTER = """<filter id="sheen" filterUnits="userSpaceOnUse" x="-{drift}" y="-{drift}"
   width="{size}" height="{size}" color-interpolation-filters="sRGB">
   <feTurbulence type="fractalNoise" baseFrequency="0.0025 0.011" seed="7" result="flow"/>
   <feColorMatrix in="flow" type="matrix"
@@ -17,7 +18,7 @@ FILTER = """<filter id="sheen" filterUnits="userSpaceOnUse" x="0" y="0"
   </feComponentTransfer>
   <feGaussianBlur in="SourceAlpha" stdDeviation="12" result="depth"/>
   <feColorMatrix in="depth" type="matrix"
-    values="0 0 0 1 0  0 0 0 1 0  0 0 0 1 0  0 0 0 0 1" result="normals"/>
+    values="0 0 0 1 -0.5  0 0 0 1 -0.5  0 0 0 1 -0.5  0 0 0 0 1" result="normals"/>
   <feDisplacementMap in="environment" in2="normals" scale="-110" xChannelSelector="R"
     yChannelSelector="G" result="reflection"/>
   <feComponentTransfer in="depth" result="falloff">
@@ -47,13 +48,14 @@ def read_glyph(path):
 def render(view_box, body, color, light):
     min_x, min_y, width, height = view_box
     scale = (SIZE - 2 * PADDING) / max(width, height)
-    shift_x = (SIZE - width * scale) / 2 - min_x * scale
-    shift_y = (SIZE - height * scale) / 2 - min_y * scale
+    shift_x = (SIZE - width * scale) / 2 - min_x * scale - DRIFT
+    shift_y = (SIZE - height * scale) / 2 - min_y * scale - DRIFT
     transform = f"translate({shift_x:g} {shift_y:g}) scale({scale:g})"
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {SIZE} {SIZE}">\n'
-        f"<defs>{FILTER.format(size=SIZE, light=light)}</defs>\n"
-        f'<g filter="url(#sheen)"><g fill="{color}" transform="{transform}">'
+        f"<defs>{FILTER.format(size=SIZE, drift=DRIFT, light=light)}</defs>\n"
+        f'<g transform="translate({DRIFT} {DRIFT})" filter="url(#sheen)">'
+        f'<g fill="{color}" transform="{transform}">'
         f"{body}</g></g>\n</svg>\n"
     )
 
