@@ -10,6 +10,7 @@ import android.provider.ContactsContract
 import android.provider.OpenableColumns
 import android.text.format.DateUtils
 import android.text.format.Formatter
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.CreateDocument
@@ -29,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -41,7 +43,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -49,7 +50,6 @@ import androidx.compose.material3.InputChip
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -123,52 +123,70 @@ fun ThreadScreen(
     }
     val current = conversation ?: return
     var menu by remember { mutableStateOf(false) }
-    Page(
-        current.title,
-        onBack,
-        actions = {
-            val single = current.people.singleOrNull()
-            if (single != null && single.address.isPhoneNumber()) {
-                IconButton(onClick = {
-                    context.open(
-                        Intent(
-                            Intent.ACTION_DIAL,
-                            Uri.fromParts("tel", single.address, null),
-                        ),
-                    )
-                }) { Icon(painterResource(R.drawable.ic_call), "Call") }
-            }
-            if (single != null) {
-                IconButton(onClick = { context.showContact(single) }) {
-                    Icon(
-                        painterResource(
-                            if (single.known) R.drawable.ic_person else R.drawable.ic_person_add,
-                        ),
-                        if (single.known) "View contact" else "Add contact",
-                    )
+    var selected by remember { mutableStateOf<Message?>(null) }
+    var details by remember { mutableStateOf<Message?>(null) }
+    Box {
+        Page(
+            current.title,
+            onBack,
+            actions = {
+                val single = current.people.singleOrNull()
+                if (single != null && single.address.isPhoneNumber()) {
+                    IconButton(onClick = {
+                        context.open(
+                            Intent(
+                                Intent.ACTION_DIAL,
+                                Uri.fromParts("tel", single.address, null),
+                            ),
+                        )
+                    }) { Icon(painterResource(R.drawable.ic_call), "Call") }
                 }
-            }
-            Box {
-                IconButton(onClick = {
-                    menu = true
-                }) { Icon(painterResource(R.drawable.ic_more), "More") }
-                ConversationMenu(current, menu, onDeleted = onBack) { menu = false }
-            }
-        },
-    ) {
-        Column(Modifier.imePadding()) {
-            val list = messages
-            Box(Modifier.weight(1f)) {
-                if (list != null &&
-                    list.isEmpty()
-                ) {
-                    Empty("Send a message to start the conversation")
+                if (single != null) {
+                    IconButton(onClick = { context.showContact(single) }) {
+                        Icon(
+                            painterResource(
+                                if (single.known) R.drawable.ic_person else R.drawable.ic_person_add,
+                            ),
+                            if (single.known) "View contact" else "Add contact",
+                        )
+                    }
                 }
-                if (list != null) MessageList(list, current, navigation)
+                Box {
+                    IconButton(onClick = {
+                        menu = true
+                    }) { Icon(painterResource(R.drawable.ic_more), "More") }
+                    ConversationMenu(current, menu, onDeleted = onBack) { menu = false }
+                }
+            },
+        ) {
+            Column(Modifier.imePadding()) {
+                val list = messages
+                Box(Modifier.weight(1f)) {
+                    if (list != null &&
+                        list.isEmpty()
+                    ) {
+                        Empty("Send a message to start the conversation")
+                    }
+                    if (list !=
+                        null
+                    ) {
+                        MessageList(list, current, navigation) { selected = it }
+                    }
+                }
+                Composer(thread, current, list.orEmpty(), navigation)
             }
-            Composer(thread, current, list.orEmpty(), navigation)
+        }
+        selected?.let { message ->
+            MessageMenu(
+                message,
+                current,
+                { selected = null },
+                { details = message },
+                navigation,
+            )
         }
     }
+    details?.let { DetailsDialog(it) { details = null } }
 }
 
 private fun Context.emptyConversation(thread: Long): Conversation? {
@@ -234,6 +252,7 @@ private fun MessageList(
     list: List<Message>,
     conversation: Conversation,
     navigation: Navigation,
+    onMenu: (Message) -> Unit,
 ) {
     val context = LocalContext.current
     val people = remember(conversation) { People(context) }
@@ -252,7 +271,7 @@ private fun MessageList(
                         null
                     }
                 val last = newer == null || newer.incoming != message.incoming
-                Bubble(message, reactions, sender, last, conversation, navigation)
+                Bubble(message, reactions, sender, last, navigation) { onMenu(message) }
             }
             if (older == null || !sameDay(older.date, message.date)) {
                 item(key = "day-${message.key}") {
@@ -299,13 +318,11 @@ private fun Bubble(
     reactions: List<String>,
     sender: String?,
     last: Boolean,
-    conversation: Conversation,
     navigation: Navigation,
+    onMenu: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var menu by remember { mutableStateOf(false) }
-    var details by remember { mutableStateOf(false) }
     var link by remember { mutableStateOf<String?>(null) }
     val outgoing = !message.incoming
     val failed = message.box == Box.Failed
@@ -338,7 +355,7 @@ private fun Bubble(
                                 ) { context.retry(message) }
                             }
                         },
-                        onLongClick = { menu = true },
+                        onLongClick = onMenu,
                     ),
             ) {
                 message.attachments.forEach { attachment ->
@@ -360,14 +377,6 @@ private fun Bubble(
                     )
                 }
             }
-            MessageMenu(
-                message,
-                conversation,
-                menu,
-                { menu = false },
-                { details = true },
-                navigation,
-            )
         }
         if (reactions.isNotEmpty()) {
             Text(
@@ -393,7 +402,6 @@ private fun Bubble(
         }
     }
     link?.let { url -> LinkDialog(url) { link = null } }
-    if (details) DetailsDialog(message) { details = false }
 }
 
 private fun status(message: Message): String {
@@ -493,31 +501,44 @@ fun Context.copyText(text: String) {
     ).setPrimaryClip(ClipData.newPlainText("Message", text))
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MessageMenu(
     message: Message,
     conversation: Conversation,
-    expanded: Boolean,
     onDismiss: () -> Unit,
     onDetails: () -> Unit,
     navigation: Navigation,
 ) {
-    if (!expanded) return
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val reactable =
         message.body.isNotEmpty() && message.box != Box.Failed && message.pending == null
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(bottom = 16.dp)) {
+    BackHandler(onBack = onDismiss)
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.4f))
+            .clickable(interactionSource = null, indication = null, onClick = onDismiss),
+        Alignment.BottomCenter,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .clickable(interactionSource = null, indication = null) {}
+                .navigationBarsPadding()
+                .padding(top = 24.dp, bottom = 8.dp),
+        ) {
             if (message.body.isNotEmpty()) {
                 Text(
                     message.body,
                     Modifier
                         .padding(horizontal = 24.dp)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .background(MaterialTheme.colorScheme.surface)
                         .padding(horizontal = 16.dp, vertical = 12.dp),
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -532,7 +553,7 @@ private fun MessageMenu(
                             Modifier
                                 .size(48.dp)
                                 .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .background(MaterialTheme.colorScheme.surface)
                                 .clickable {
                                     onDismiss()
                                     val text = reactionText(emoji, message.body)
