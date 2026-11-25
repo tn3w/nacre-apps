@@ -16,6 +16,7 @@
 
     <activity
       android:name=".MainActivity"
+      android:directBootAware="true"
       android:exported="true"
       android:launchMode="singleTask">
       <intent-filter>
@@ -45,6 +46,7 @@
 
     <activity
       android:name=".RingActivity"
+      android:directBootAware="true"
       android:excludeFromRecents="true"
       android:launchMode="singleInstance"
       android:showWhenLocked="true"
@@ -53,14 +55,19 @@
 
     <service
       android:name=".RingService"
+      android:directBootAware="true"
       android:foregroundServiceType="systemExempted" />
 
-    <receiver android:name=".AlarmReceiver" />
+    <receiver
+      android:name=".AlarmReceiver"
+      android:directBootAware="true" />
 
     <receiver
       android:name=".RescheduleReceiver"
+      android:directBootAware="true"
       android:exported="false">
       <intent-filter>
+        <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
         <action android:name="android.intent.action.BOOT_COMPLETED" />
         <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
         <action android:name="android.intent.action.TIME_SET" />

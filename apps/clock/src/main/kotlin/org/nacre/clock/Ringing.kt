@@ -15,7 +15,6 @@ import android.os.Bundle
 import android.os.VibrationAttributes
 import android.os.VibrationEffect
 import android.os.VibratorManager
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -126,7 +125,7 @@ class RingService : Service() {
             listOfNotNull(
                 ringtone?.let(Uri::parse),
                 RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
-                Settings.System.DEFAULT_RINGTONE_URI
+                Uri.parse("android.resource://$packageName/${R.raw.fallback_alarm}")
             )
         val player = candidates.firstNotNullOfOrNull(::open) ?: return
         this.player = player

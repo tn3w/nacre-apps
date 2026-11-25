@@ -49,7 +49,9 @@ object Store {
 
     fun init(application: Context) {
         context = application
-        preferences = context.getSharedPreferences("clock", Context.MODE_PRIVATE)
+        val storage = context.createDeviceProtectedStorageContext()
+        storage.moveSharedPreferencesFrom(context, "clock")
+        preferences = storage.getSharedPreferences("clock", Context.MODE_PRIVATE)
         zones.value =
             preferences.getString("zones", "")!!.split(",").filter { it.isNotEmpty() }
         alarms.value = readList("alarms", Alarm::fromJson)
