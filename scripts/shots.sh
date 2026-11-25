@@ -23,7 +23,7 @@ elapsed() {
 }
 
 preferences() {
-    local file=/data/user_de/0/$package/shared_prefs/$1.xml
+    local file=/data/${storage:-user_de/0}/$package/shared_prefs/$1.xml
     { echo "<map>"; cat; echo "</map>"; } |
         adb shell "run-as $package sh -c 'mkdir -p ${file%/*} && cat > $file'"
 }
