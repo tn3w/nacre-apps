@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.graphics.drawable.Icon
 import android.net.Uri
 import android.text.format.DateFormat
 import java.time.DayOfWeek
@@ -155,6 +154,18 @@ class AlarmReceiver : BroadcastReceiver() {
             "upcoming" -> Store.alarm(id)?.let { notifyUpcoming(context, it) }
 
             "skip" -> Store.skip(id)
+
+            "timer-toggle" -> Store.timer(id)?.let { Store.saveTimer(it.toggled()) }
+
+            "timer-add" -> Store.addMinute(id)
+
+            "timer-reset" -> Store.resetTimer(id)
+
+            "stopwatch-toggle" -> Store.saveStopwatch(Store.stopwatch.value.toggled())
+
+            "stopwatch-lap" -> Store.saveStopwatch(Store.stopwatch.value.lap())
+
+            "stopwatch-reset" -> Store.saveStopwatch(Stopwatch())
         }
     }
 }
@@ -169,11 +180,7 @@ private fun notifyUpcoming(context: Context, alarm: Alarm) {
     val pattern = if (DateFormat.is24HourFormat(context)) "EEE HH:mm" else "EEE h:mm a"
     val time = Instant.ofEpochMilli(trigger).atZone(ZoneId.systemDefault())
         .format(DateTimeFormatter.ofPattern(pattern))
-    val dismiss = Notification.Action.Builder(
-        Icon.createWithResource(context, R.drawable.ic_alarm),
-        "Dismiss",
-        Scheduler.broadcast(context, "skip:${alarm.id}")
-    ).build()
+    val dismiss = quickAction(context, "Dismiss", "skip:${alarm.id}")
 
     val notification = Notification.Builder(context, Alarm.UPCOMING_CHANNEL)
         .setSmallIcon(R.drawable.ic_alarm)

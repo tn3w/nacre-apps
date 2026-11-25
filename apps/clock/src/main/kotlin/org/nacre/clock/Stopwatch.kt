@@ -68,18 +68,25 @@ data class Stopwatch(
 
 fun notifyStopwatch(context: Context, stopwatch: Stopwatch) {
     val manager = context.getSystemService(NotificationManager::class.java)
-    if (!stopwatch.running) return manager.cancel("stopwatch", 0)
+    if (stopwatch.elapsed() == 0L) return manager.cancel("stopwatch", 0)
 
-    val notification = Notification.Builder(context, Timer.CHANNEL)
+    val builder = Notification.Builder(context, Timer.CHANNEL)
         .setSmallIcon(R.drawable.ic_stopwatch)
         .setContentTitle("Stopwatch")
-        .setUsesChronometer(true)
-        .setWhen(System.currentTimeMillis() - stopwatch.elapsed())
-        .setShowWhen(true)
         .setOngoing(true)
         .setContentIntent(openTab(context, Tab.Stopwatch))
-        .build()
-    manager.notify("stopwatch", 0, notification)
+    if (stopwatch.running) {
+        builder.setUsesChronometer(true)
+            .setWhen(System.currentTimeMillis() - stopwatch.elapsed())
+            .setShowWhen(true)
+            .addAction(quickAction(context, "Pause", "stopwatch-toggle:0"))
+            .addAction(quickAction(context, "Lap", "stopwatch-lap:0"))
+    } else {
+        builder.setContentText("Paused · ${formatStopwatch(stopwatch.elapsed())}")
+            .addAction(quickAction(context, "Resume", "stopwatch-toggle:0"))
+            .addAction(quickAction(context, "Reset", "stopwatch-reset:0"))
+    }
+    manager.notify("stopwatch", 0, builder.build())
 }
 
 fun formatStopwatch(milliseconds: Long) =

@@ -3,6 +3,7 @@ package org.nacre.clock
 import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
+import android.graphics.drawable.Icon
 import org.json.JSONObject
 
 data class Timer(
@@ -53,17 +54,32 @@ data class Timer(
 
 fun notifyTimer(context: Context, timer: Timer) {
     val manager = context.getSystemService(NotificationManager::class.java)
-    if (timer.left() <= 0 || !timer.running) return manager.cancel("timer", timer.id)
+    val idle = !timer.running && timer.remaining == timer.duration
+    if (idle || timer.left() <= 0) return manager.cancel("timer", timer.id)
 
-    val notification = Notification.Builder(context, Timer.CHANNEL)
+    val builder = Notification.Builder(context, Timer.CHANNEL)
         .setSmallIcon(R.drawable.ic_timer)
         .setContentTitle(timer.label.ifEmpty { "Timer" })
-        .setUsesChronometer(true)
-        .setChronometerCountDown(true)
-        .setWhen(timer.endsAt)
-        .setShowWhen(true)
         .setOngoing(true)
         .setContentIntent(openTab(context, Tab.Timer))
-        .build()
-    manager.notify("timer", timer.id, notification)
+    if (timer.running) {
+        builder.setUsesChronometer(true)
+            .setChronometerCountDown(true)
+            .setWhen(timer.endsAt)
+            .setShowWhen(true)
+            .addAction(quickAction(context, "Pause", "timer-toggle:${timer.id}"))
+            .addAction(quickAction(context, "+1:00", "timer-add:${timer.id}"))
+    } else {
+        builder.setContentText("Paused · ${formatClock((timer.remaining + 999) / 1000)}")
+            .addAction(quickAction(context, "Resume", "timer-toggle:${timer.id}"))
+            .addAction(quickAction(context, "Reset", "timer-reset:${timer.id}"))
+    }
+    manager.notify("timer", timer.id, builder.build())
 }
+
+fun quickAction(context: Context, label: String, uri: String): Notification.Action =
+    Notification.Action.Builder(
+        Icon.createWithResource(context, R.drawable.ic_timer),
+        label,
+        Scheduler.broadcast(context, uri)
+    ).build()
