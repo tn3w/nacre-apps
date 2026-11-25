@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
 import android.graphics.drawable.Icon
+import android.os.SystemClock
 import org.json.JSONObject
 
 data class Timer(
@@ -15,10 +16,10 @@ data class Timer(
 ) {
     val running get() = endsAt > 0
 
-    fun left(now: Long = System.currentTimeMillis()) =
+    fun left(now: Long = SystemClock.elapsedRealtime()) =
         if (running) endsAt - now else remaining
 
-    fun toggled(now: Long = System.currentTimeMillis()) = if (running) {
+    fun toggled(now: Long = SystemClock.elapsedRealtime()) = if (running) {
         copy(remaining = left(now), endsAt = 0)
     } else {
         copy(endsAt = now + remaining)
@@ -26,7 +27,10 @@ data class Timer(
 
     fun reset() = copy(remaining = duration, endsAt = 0)
 
-    fun plusMinute(now: Long = System.currentTimeMillis()) = when {
+    fun rebased(shift: Long) =
+        if (running) copy(endsAt = maxOf(1, endsAt + shift)) else this
+
+    fun plusMinute(now: Long = SystemClock.elapsedRealtime()) = when {
         !running -> copy(remaining = remaining + 60_000)
         endsAt <= now -> copy(endsAt = now + 60_000)
         else -> copy(endsAt = endsAt + 60_000)
@@ -65,7 +69,7 @@ fun notifyTimer(context: Context, timer: Timer) {
     if (timer.running) {
         builder.setUsesChronometer(true)
             .setChronometerCountDown(true)
-            .setWhen(timer.endsAt)
+            .setWhen(System.currentTimeMillis() + timer.left())
             .setShowWhen(true)
             .addAction(quickAction(context, "Pause", "timer-toggle:${timer.id}"))
             .addAction(quickAction(context, "+1:00", "timer-add:${timer.id}"))

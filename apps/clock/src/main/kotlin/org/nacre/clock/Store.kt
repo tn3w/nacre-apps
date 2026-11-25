@@ -6,6 +6,8 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.os.SystemClock
+import android.provider.Settings
 import androidx.core.content.edit
 import java.time.ZoneId
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,10 +67,16 @@ object Store {
             .filter { it in available }
             .distinct()
         alarms.value = readList("alarms", Alarm::fromJson).distinctBy(Alarm::id)
+
+        val shift = rebootShift()
         timers.value = readList("timers", Timer::fromJson).distinctBy(Timer::id)
+            .map { it.rebased(shift) }
         stopwatch.value = runCatching {
             Stopwatch.fromJson(JSONObject(preferences.getString("stopwatch", null)!!))
-        }.getOrDefault(Stopwatch())
+        }.getOrDefault(Stopwatch()).rebased(shift)
+        writeList("timers", timers.value.map(Timer::toJson))
+        preferences.edit { putString("stopwatch", stopwatch.value.toJson().toString()) }
+        anchor()
     }
 
     fun addZone(zone: String) = saveZones(zones.value - zone + zone)
@@ -162,6 +170,23 @@ object Store {
     }
 
     private fun silence(uri: String) = RingService.silence(context, uri)
+
+    private fun bootCount() =
+        Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, 0)
+
+    private fun rebootShift(): Long {
+        if (preferences.getInt("boot", bootCount()) == bootCount()) return 0
+        val passed = System.currentTimeMillis() - preferences.getLong("wall", 0)
+        return SystemClock.elapsedRealtime() - passed - preferences.getLong("elapsed", 0)
+    }
+
+    fun anchor() {
+        preferences.edit {
+            putInt("boot", bootCount())
+            putLong("wall", System.currentTimeMillis())
+            putLong("elapsed", SystemClock.elapsedRealtime())
+        }
+    }
 
     fun addMinute(id: Int) = timer(id)?.let { saveTimer(it.plusMinute()) }
 

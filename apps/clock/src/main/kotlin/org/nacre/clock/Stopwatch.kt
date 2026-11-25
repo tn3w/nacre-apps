@@ -3,6 +3,7 @@ package org.nacre.clock
 import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
+import android.os.SystemClock
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -38,16 +39,22 @@ data class Stopwatch(
 ) {
     val running get() = startedAt > 0
 
-    fun elapsed(now: Long = System.currentTimeMillis()) =
+    fun elapsed(now: Long = SystemClock.elapsedRealtime()) =
         accumulated + if (running) now - startedAt else 0
 
-    fun toggled(now: Long = System.currentTimeMillis()) = if (running) {
+    fun toggled(now: Long = SystemClock.elapsedRealtime()) = if (running) {
         copy(accumulated = elapsed(now), startedAt = 0)
     } else {
         copy(startedAt = now)
     }
 
-    fun lap(now: Long = System.currentTimeMillis()) = copy(laps = laps + elapsed(now))
+    fun lap(now: Long = SystemClock.elapsedRealtime()) = copy(laps = laps + elapsed(now))
+
+    fun rebased(shift: Long, now: Long = SystemClock.elapsedRealtime()) = if (running) {
+        copy(accumulated = elapsed(now - shift), startedAt = now)
+    } else {
+        this
+    }
 
     fun toJson(): JSONObject = JSONObject()
         .put("accumulated", accumulated)
@@ -95,7 +102,10 @@ fun formatStopwatch(milliseconds: Long) =
 @Composable
 fun StopwatchScreen() {
     val stopwatch by Store.stopwatch.collectAsState()
-    val now by rememberNow(if (stopwatch.running) 30 else 1000)
+    val now by rememberNow(
+        if (stopwatch.running) 30 else 1000,
+        SystemClock::elapsedRealtime
+    )
     val elapsed = stopwatch.elapsed(now)
 
     Column(

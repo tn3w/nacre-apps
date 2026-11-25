@@ -113,7 +113,7 @@ object Scheduler {
         val operation = broadcast(context, "timer:${timer.id}")
         if (!timer.running || timer.left() <= 0) return manager.cancel(operation)
         manager.setExactAndAllowWhileIdle(
-            AlarmManager.RTC_WAKEUP,
+            AlarmManager.ELAPSED_REALTIME_WAKEUP,
             timer.endsAt,
             operation
         )
@@ -124,6 +124,7 @@ object Scheduler {
     }
 
     fun rescheduleAll(context: Context, late: Boolean) {
+        Store.anchor()
         val now = System.currentTimeMillis()
         Store.alarms.value.forEach { alarm ->
             val overdue = now - alarm.scheduled

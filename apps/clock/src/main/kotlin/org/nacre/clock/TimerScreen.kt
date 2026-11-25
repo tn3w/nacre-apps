@@ -1,5 +1,6 @@
 package org.nacre.clock
 
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,7 +54,7 @@ fun TimerScreen() {
         return
     }
 
-    val now by rememberNow(100)
+    val now by rememberNow(100, SystemClock::elapsedRealtime)
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             contentPadding = PaddingValues(16.dp, 24.dp, 16.dp, 96.dp),

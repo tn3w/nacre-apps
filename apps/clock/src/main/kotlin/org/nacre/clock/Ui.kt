@@ -11,13 +11,15 @@ import java.util.Locale
 import kotlinx.coroutines.delay
 
 @Composable
-fun rememberNow(period: Long = 1000): State<Long> =
-    produceState(System.currentTimeMillis(), period) {
-        while (true) {
-            value = System.currentTimeMillis()
-            delay(period - value % period)
-        }
+fun rememberNow(
+    period: Long = 1000,
+    clock: () -> Long = System::currentTimeMillis
+): State<Long> = produceState(clock(), period) {
+    while (true) {
+        value = clock()
+        delay(period - value % period)
     }
+}
 
 @Composable
 fun timeFormatter(): DateTimeFormatter {
