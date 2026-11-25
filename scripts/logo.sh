@@ -12,9 +12,9 @@ badge() {
     magick "$work/$1.png" \
         \( -background none -fill "$3" -font Noto-Sans-Medium -pointsize 64 \
         "label:$title" \) \
-        -background none -gravity center +smush 20 -bordercolor none -border 44x20 \
+        -background none -gravity center +smush 16 -bordercolor none -border 28x12 \
         \( +clone -alpha transparent -fill "$2" \
-        -draw "roundrectangle 0,0,%[fx:w-1],%[fx:h-1],44,44" \) \
+        -draw "roundrectangle 0,0,%[fx:w-1],%[fx:h-1],32,32" \) \
         +swap -compose Over -composite -strip "$out/badge-$4.png"
 }
 

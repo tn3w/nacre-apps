@@ -2,10 +2,12 @@
 
 Minimal, private system apps for a GrapheneOS-like Android ROM. No Google, no network, no tracking.
 
+<br>
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="apps/clock/readme/badge-dark.png">
-    <img src="apps/clock/readme/badge-light.png" width="190" alt="Clock">
+    <img src="apps/clock/readme/badge-light.png" width="172" alt="Clock">
   </picture>
 </p>
 
