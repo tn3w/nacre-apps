@@ -11,7 +11,7 @@ Minimal, private system apps for a GrapheneOS-like Android ROM. No Google, no ne
   </picture>
 </p>
 
-<p align="center">Alarms, world clocks, timers and a stopwatch that ring reliably, even before first unlock.</p>
+<p align="center">Reliable alarms, world clocks, timers and a stopwatch in one simple app.</p>
 
 <p align="center">
   <picture>
