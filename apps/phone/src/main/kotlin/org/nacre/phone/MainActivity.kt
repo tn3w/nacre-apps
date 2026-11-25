@@ -45,7 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import org.nacre.core.NacreTheme
 
-private const val MAX_DIGITS = 64
+const val MAX_DIGITS = 64
 
 private val PERMISSIONS =
     arrayOf(

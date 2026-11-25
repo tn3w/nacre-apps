@@ -138,6 +138,11 @@ class CallService : InCallService() {
 
     override fun onDestroy() {
         Ongoing.service = null
+        Ongoing.list.value.forEach { it.unregisterCallback(Ongoing.callback) }
+        Ongoing.list.value = emptyList()
+        Ongoing.muted.value = false
+        Ongoing.endpoint.value = null
+        Ongoing.endpoints.value = emptyList()
         proximity?.takeIf { it.isHeld }?.release()
         super.onDestroy()
     }

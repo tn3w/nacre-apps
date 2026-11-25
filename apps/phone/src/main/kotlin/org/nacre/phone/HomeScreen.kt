@@ -405,7 +405,7 @@ private fun Keypad(navigation: Navigation) {
     val tones = rememberTones()
     val digits = navigation.digits
     val matches by rememberQuery(emptyList<Number>(), digits) { matches(digits) }
-    val type: (String) -> Unit = { navigation.digits = it }
+    val type: (String) -> Unit = { navigation.digits = it.take(MAX_DIGITS) }
 
     Column(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
@@ -505,10 +505,7 @@ private fun Keypad(navigation: Navigation) {
 private fun Context.paste(): String? {
     val clipboard = getSystemService(ClipboardManager::class.java)
     val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(this) ?: return null
-    return text.filter { it.isDigit() || it in "+*#,;" }.toString().takeIf {
-        it
-            .isNotEmpty()
-    }
+    return text.filter { it.isDigit() || it in "+*#,;" }.toString().ifEmpty { null }
 }
 
 private fun Context.sendSecretCode(digits: String): Boolean {

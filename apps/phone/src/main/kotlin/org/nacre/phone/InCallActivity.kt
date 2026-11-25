@@ -335,7 +335,7 @@ private fun Keypad(
     Spacer(Modifier.height(8.dp))
     Dialpad(
         onPress = {
-            typed += it
+            typed = (typed + it).takeLast(MAX_DIGITS)
             call.playDtmfTone(it)
         },
         onRelease = { call.stopDtmfTone() },
