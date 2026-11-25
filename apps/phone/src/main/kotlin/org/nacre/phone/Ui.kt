@@ -1,10 +1,12 @@
 package org.nacre.phone
 
+import android.content.ContentResolver
 import android.content.Context
-import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.net.Uri
+import android.provider.ContactsContract
 import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.Image
@@ -55,6 +57,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.withContext
 
+private const val PHOTO_PIXELS = 256
+
 private val KEYS =
     listOf(
         '1' to "",
@@ -100,12 +104,7 @@ fun Avatar(
         value =
             photo?.let { uri ->
                 withContext(Dispatchers.IO) {
-                    runCatching {
-                        resolver
-                            .openInputStream(uri)
-                            ?.use(BitmapFactory::decodeStream)
-                            ?.asImageBitmap()
-                    }.getOrNull()
+                    runCatching { resolver.thumbnail(uri) }.getOrNull()
                 }
             }
     }
@@ -122,6 +121,17 @@ fun Avatar(
             Text(initial, fontSize = (size.value * 0.42f).sp)
         }
     }
+}
+
+private fun ContentResolver.thumbnail(uri: Uri): ImageBitmap? {
+    if (uri.scheme != ContentResolver.SCHEME_CONTENT) return null
+    if (uri.authority != ContactsContract.AUTHORITY) return null
+    val source = ImageDecoder.createSource(this, uri)
+    return ImageDecoder
+        .decodeBitmap(source) { decoder, info, _ ->
+            val side = minOf(info.size.width, info.size.height)
+            decoder.setTargetSampleSize((side / PHOTO_PIXELS).coerceAtLeast(1))
+        }.asImageBitmap()
 }
 
 @Composable

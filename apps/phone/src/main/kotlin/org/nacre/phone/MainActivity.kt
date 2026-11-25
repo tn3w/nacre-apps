@@ -155,6 +155,7 @@ class MainActivity : ComponentActivity() {
                     .orEmpty()
                     .filter(PhoneNumberUtils::isNonSeparator)
                     .take(MAX_DIGITS)
+                    .removePrefix("*#*#")
             return Screen.Home(Tab.Keypad)
         }
         if (intent.type == CallLog.Calls.CONTENT_TYPE) return Screen.Home(Tab.Recents)
@@ -243,6 +244,13 @@ fun Context.call(number: String) {
             Uri.fromParts(PhoneAccount.SCHEME_TEL, number, null),
         )
     }
+}
+
+fun Context.callBack(number: String) {
+    if (number.isPlainNumber()) return call(number)
+    val dial =
+        Intent(Intent.ACTION_DIAL, Uri.fromParts(PhoneAccount.SCHEME_TEL, number, null))
+    open(dial.setClass(this, MainActivity::class.java))
 }
 
 fun Context.callVoicemail() =

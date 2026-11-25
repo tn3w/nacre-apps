@@ -27,6 +27,25 @@ import java.util.Locale
 private const val T9 = "22233344455566677778889999"
 private const val LOG_LIMIT = "500"
 private const val MATCH_LIMIT = 30
+private const val TEXT_LIMIT = 100
+private val PLAIN_NUMBER = Regex("""\+?[0-9]{1,20}""")
+private val HIDDEN =
+    listOf(
+        Character.CONTROL,
+        Character.FORMAT,
+        Character.LINE_SEPARATOR,
+        Character.PARAGRAPH_SEPARATOR,
+    ).map(Byte::toInt)
+
+fun CharSequence?.clean(): String =
+    (this ?: "")
+        .take(TEXT_LIMIT * 4)
+        .filterNot { Character.getType(it) in HIDDEN }
+        .trim()
+        .take(TEXT_LIMIT)
+        .toString()
+
+fun String.isPlainNumber() = filterNot { it in " -()./" }.matches(PLAIN_NUMBER)
 
 data class Contact(
     val id: Long,
@@ -91,7 +110,7 @@ private fun Cursor.contact(idColumn: String = Contacts._ID) =
     Contact(
         id = long(idColumn),
         lookup = string(Contacts.LOOKUP_KEY).orEmpty(),
-        name = string(Contacts.DISPLAY_NAME_PRIMARY).orEmpty(),
+        name = string(Contacts.DISPLAY_NAME_PRIMARY).clean(),
         photo = string(Contacts.PHOTO_THUMBNAIL_URI)?.let(Uri::parse),
         starred = int(Contacts.STARRED) == 1,
     )
@@ -138,11 +157,11 @@ private val NUMBER_COLUMNS =
 private fun Cursor.number(context: Context) =
     Number(
         contact = contact(Phone.CONTACT_ID),
-        number = string(Phone.NUMBER).orEmpty(),
+        number = string(Phone.NUMBER).clean(),
         label =
             Phone
                 .getTypeLabel(context.resources, int(Phone.TYPE), string(Phone.LABEL))
-                .toString(),
+                .clean(),
     )
 
 fun Context.numbers(contactId: Long): List<Number> =
@@ -218,7 +237,7 @@ fun Context.lookup(number: String): Number? {
                                 resources,
                                 int(PhoneLookup.TYPE),
                                 string(PhoneLookup.LABEL),
-                            ).toString(),
+                            ).clean(),
                 )
             }.firstOrNull()
     }.getOrNull()
@@ -257,10 +276,10 @@ fun Context.callLog(number: String? = null): List<Entry> {
         ).list {
             val type = int(Calls.CACHED_NUMBER_TYPE)
             val label = string(Calls.CACHED_NUMBER_LABEL)
-            val name = string(Calls.CACHED_NAME).orEmpty()
+            val name = string(Calls.CACHED_NAME).clean()
             Entry(
                 id = long(Calls._ID),
-                number = string(Calls.NUMBER).orEmpty(),
+                number = string(Calls.NUMBER).clean(),
                 name = name,
                 photo = string(Calls.CACHED_PHOTO_URI)?.let(Uri::parse),
                 type = int(Calls.TYPE),
@@ -269,9 +288,9 @@ fun Context.callLog(number: String? = null): List<Entry> {
                 presentation = int(Calls.NUMBER_PRESENTATION),
                 detail =
                     when {
-                        name.isEmpty() -> string(Calls.GEOCODED_LOCATION).orEmpty()
+                        name.isEmpty() -> string(Calls.GEOCODED_LOCATION).clean()
                         type == 0 && label.isNullOrEmpty() -> ""
-                        else -> Phone.getTypeLabel(resources, type, label).toString()
+                        else -> Phone.getTypeLabel(resources, type, label).clean()
                     },
             )
         }
@@ -334,4 +353,4 @@ fun Context.countryIso(): String {
 }
 
 fun Context.formatNumber(number: String): String =
-    PhoneNumberUtils.formatNumber(number, countryIso()) ?: number
+    (PhoneNumberUtils.formatNumber(number, countryIso()) ?: number).clean()

@@ -1,5 +1,7 @@
 package org.nacre.phone
 
+import android.app.Activity
+import android.app.KeyguardManager
 import android.content.Intent
 import android.os.Bundle
 import android.telecom.Call
@@ -62,6 +64,7 @@ class InCallActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         window.isNavigationBarContrastEnforced = false
+        window.setHideOverlayWindows(true)
         handle(intent)
         setContent { NacreTheme { InCallScreen(::finishAndRemoveTask) } }
     }
@@ -291,7 +294,7 @@ private fun Incoming(call: Call) {
             Column {
                 responses.forEach { response ->
                     Text(
-                        response,
+                        response.clean(),
                         Modifier
                             .fillMaxWidth()
                             .clickable { call.reject(true, response) }
@@ -313,14 +316,16 @@ private fun Accounts(
     val key = Call.AVAILABLE_PHONE_ACCOUNTS
     val type = PhoneAccountHandle::class.java
     val handles =
-        details.extras?.getParcelableArrayList(key, type)
-            ?: details.intentExtras?.getParcelableArrayList(key, type)
-            ?: runCatching { telecom.callCapablePhoneAccounts }.getOrDefault(emptyList())
+        runCatching {
+            details.extras?.getParcelableArrayList(key, type)
+                ?: details.intentExtras?.getParcelableArrayList(key, type)
+                ?: telecom.callCapablePhoneAccounts
+        }.getOrDefault(emptyList())
     Text("Call with", style = MaterialTheme.typography.titleMedium)
     handles.forEach { handle ->
         val label = runCatching { telecom.getPhoneAccount(handle)?.label }.getOrNull()
         TextButton(onClick = { call.phoneAccountSelected(handle, false) }) {
-            Text(label?.toString() ?: handle.id)
+            Text((label ?: handle.id).clean())
         }
     }
 }
@@ -371,7 +376,7 @@ private fun Controls(
                     Intent(context, MainActivity::class.java)
                         .putExtra("tab", Tab.Keypad.name)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
+                (context as Activity).unlocked { context.startActivity(intent) }
             }
             if (call.canMerge()) {
                 Control(R.drawable.ic_merge, "Merge") { call.merge() }
@@ -382,6 +387,16 @@ private fun Controls(
             }
         }
     }
+}
+
+private fun Activity.unlocked(action: () -> Unit) {
+    val keyguard = getSystemService(KeyguardManager::class.java)
+    if (!keyguard.isKeyguardLocked) return action()
+    val callback =
+        object : KeyguardManager.KeyguardDismissCallback() {
+            override fun onDismissSucceeded() = action()
+        }
+    keyguard.requestDismissKeyguard(this, callback)
 }
 
 @Composable
@@ -406,11 +421,12 @@ private fun Audio() {
                 CallEndpoint.TYPE_BLUETOOTH -> R.drawable.ic_bluetooth
                 else -> R.drawable.ic_speaker
             }
-        Control(icon, endpoint?.endpointName?.toString() ?: "Audio", true) { menu = true }
+        val name = endpoint?.endpointName.clean().ifEmpty { "Audio" }
+        Control(icon, name, true) { menu = true }
         DropdownMenu(menu, { menu = false }) {
             endpoints.forEach {
                 DropdownMenuItem(
-                    text = { Text(it.endpointName.toString()) },
+                    text = { Text(it.endpointName.clean()) },
                     onClick = {
                         menu = false
                         Ongoing.route(it)

@@ -297,7 +297,7 @@ class CallActionReceiver : BroadcastReceiver() {
     }
 }
 
-fun Call.Details.number(): String = handle?.schemeSpecificPart.orEmpty()
+fun Call.Details.number(): String = handle?.schemeSpecificPart.clean()
 
 fun Context.callerName(details: Call.Details): String =
     when {
@@ -315,7 +315,8 @@ fun Context.callerName(details: Call.Details): String =
 
         else -> {
             listOf(details.contactDisplayName, details.callerDisplayName)
-                .firstOrNull { !it.isNullOrBlank() }
+                .map { it.clean() }
+                .firstOrNull { it.isNotEmpty() }
                 ?: details.number().takeIf { it.isNotEmpty() }?.let(::formatNumber)
                 ?: "Unknown"
         }
@@ -350,8 +351,8 @@ fun statusText(details: Call.Details): String =
         Call.STATE_DISCONNECTED -> {
             details.disconnectCause
                 ?.label
-                ?.toString()
-                ?.takeIf { it.isNotBlank() } ?: "Call ended"
+                .clean()
+                .ifEmpty { "Call ended" }
         }
 
         else -> {

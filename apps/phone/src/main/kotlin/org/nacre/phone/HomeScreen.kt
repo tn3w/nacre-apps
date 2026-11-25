@@ -150,7 +150,7 @@ private fun rememberContactCaller(): (Contact) -> Unit {
                             modifier =
                                 Modifier.clickable {
                                     choices = emptyList()
-                                    context.call(choice.number)
+                                    context.callBack(choice.number)
                                 },
                         ) { Text(context.formatNumber(choice.number)) }
                     }
@@ -167,7 +167,7 @@ private fun rememberContactCaller(): (Contact) -> Unit {
             if (numbers.size ==
                 1
             ) {
-                context.call(numbers.first().number)
+                context.callBack(numbers.first().number)
             } else {
                 choices = numbers
             }
@@ -277,7 +277,7 @@ private fun RecentRow(
         },
         trailingContent = {
             if (entry.dialable) {
-                IconButton(onClick = { context.call(entry.number) }) {
+                IconButton(onClick = { context.callBack(entry.number) }) {
                     Icon(painterResource(R.drawable.ic_call), "Call")
                 }
             }
@@ -425,7 +425,7 @@ private fun Keypad(navigation: Navigation) {
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     modifier =
                         Modifier
-                            .clickable { context.call(match.number) }
+                            .clickable { context.callBack(match.number) }
                             .padding(horizontal = 8.dp),
                 ) { Text(match.contact.name, maxLines = 1) }
             }
@@ -585,7 +585,7 @@ fun HistoryScreen(
             if (dialable) {
                 item {
                     Row(Modifier.fillMaxWidth().padding(8.dp), Arrangement.SpaceEvenly) {
-                        Shortcut(R.drawable.ic_call, "Call") { context.call(number) }
+                        Shortcut(R.drawable.ic_call, "Call") { context.callBack(number) }
                         Shortcut(
                             R.drawable.ic_message,
                             "Message",
