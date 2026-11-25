@@ -1,0 +1,1 @@
+plugins { id("nacre.app") }
