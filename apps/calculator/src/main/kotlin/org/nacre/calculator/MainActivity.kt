@@ -15,7 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.res.painterResource
 import org.nacre.core.NacreTheme
 
-enum class Page { Calculator, History }
+enum class Page { Calculator, History, Converter }
 
 class MainActivity : ComponentActivity() {
     private val page = mutableStateOf(Page.Calculator)
@@ -79,8 +79,13 @@ fun CalculatorApp(page: MutableState<Page>) {
             IconButton(onClick = { page.value = Page.History }) {
                 Icon(painterResource(R.drawable.ic_history), "History")
             }
+            IconButton(onClick = { page.value = Page.Converter }) {
+                Icon(painterResource(R.drawable.ic_convert), "Converter")
+            }
         }
 
         Page.History -> HistoryScreen(back)
+
+        Page.Converter -> ConverterScreen(back)
     }
 }

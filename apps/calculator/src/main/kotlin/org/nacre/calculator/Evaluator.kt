@@ -174,8 +174,8 @@ private class Evaluator(private val text: String, private val degrees: Boolean) 
         throw CalculationException(message)
 }
 
-fun format(value: BigDecimal): String {
-    val rounded = value.round(MathContext(16)).stripTrailingZeros()
+fun format(value: BigDecimal, digits: Int = 16): String {
+    val rounded = value.round(MathContext(digits)).stripTrailingZeros()
     if (rounded.signum() == 0) return "0"
     val exponent = rounded.precision() - rounded.scale() - 1
     val text = if (exponent in -6..15) {

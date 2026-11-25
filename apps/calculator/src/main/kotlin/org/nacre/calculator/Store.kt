@@ -32,6 +32,7 @@ object Store {
     val scientific = MutableStateFlow(false)
     val degrees = MutableStateFlow(false)
     val history = MutableStateFlow(emptyList<Entry>())
+    val rates = MutableStateFlow(emptyMap<String, String>())
 
     fun init(context: Context) {
         val storage = context.createDeviceProtectedStorageContext()
@@ -43,6 +44,9 @@ object Store {
         scientific.value = preferences.getBoolean("scientific", false)
         degrees.value = preferences.getBoolean("degrees", false)
         history.value = readHistory()
+        val stored = runCatching { JSONObject(preferences.getString("rates", "{}")!!) }
+            .getOrDefault(JSONObject())
+        rates.value = stored.keys().asSequence().associateWith { stored.getString(it) }
     }
 
     fun setScientific(value: Boolean) {
@@ -121,6 +125,17 @@ object Store {
         } ?: return false
         press(key)
         return true
+    }
+
+    fun setRate(code: String, usd: String?) {
+        rates.value = if (usd == null) rates.value - code else rates.value + (code to usd)
+        preferences.edit { putString("rates", JSONObject(rates.value).toString()) }
+    }
+
+    fun setting(key: String) = preferences.getString(key, null)
+
+    fun putSetting(key: String, value: String) = preferences.edit {
+        putString(key, value)
     }
 
     fun clearHistory() = saveHistory(emptyList())
