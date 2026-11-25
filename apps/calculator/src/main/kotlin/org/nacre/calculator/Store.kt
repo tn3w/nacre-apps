@@ -35,8 +35,7 @@ object Store {
     val rates = MutableStateFlow(emptyMap<String, String>())
 
     fun init(context: Context) {
-        val storage = context.createDeviceProtectedStorageContext()
-        preferences = storage.getSharedPreferences("calculator", Context.MODE_PRIVATE)
+        preferences = context.getSharedPreferences("calculator", Context.MODE_PRIVATE)
         calculation.value = Calculation(
             preferences.getString("expression", "").orEmpty(),
             preferences.getBoolean("evaluated", false)
