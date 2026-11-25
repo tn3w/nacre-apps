@@ -57,7 +57,9 @@ fun ConverterScreen(onBack: () -> Unit) {
     var input by rememberSaveable { mutableStateOf(Store.setting("input") ?: "1") }
     var editing by remember { mutableStateOf<Measure?>(null) }
     val source = units.find { it.symbol == symbol } ?: units.first()
-    val base = runCatching { source.toBase(evaluate(normalize(input))) }.getOrNull()
+    val base = remember(source, input) {
+        runCatching { source.toBase(evaluate(normalize(input))) }.getOrNull()
+    }
 
     fun select(unit: Measure, value: String) {
         symbol = unit.symbol

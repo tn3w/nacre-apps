@@ -110,6 +110,7 @@ private fun Display(modifier: Modifier) {
     val calculation by Store.calculation.collectAsState()
     val error by Store.error.collectAsState()
     val degrees by Store.degrees.collectAsState()
+    val preview = remember(calculation, degrees) { Store.preview()?.let(::display) }
     val expression = display(calculation.expression)
     val size = when {
         expression.length <= 9 -> 72.sp
@@ -152,7 +153,7 @@ private fun Display(modifier: Modifier) {
             textAlign = TextAlign.End
         )
         Text(
-            error ?: degrees.let { Store.preview() }?.let(::display).orEmpty(),
+            error ?: preview.orEmpty(),
             color = MaterialTheme.colorScheme.outline,
             fontSize = 32.sp,
             maxLines = 1
