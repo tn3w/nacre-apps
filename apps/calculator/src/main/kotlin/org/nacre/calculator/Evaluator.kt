@@ -21,6 +21,10 @@ fun evaluate(text: String, degrees: Boolean = false): BigDecimal = try {
     Evaluator(text, degrees).evaluate()
 } catch (_: ArithmeticException) {
     throw CalculationException("Too large")
+} catch (_: NumberFormatException) {
+    throw CalculationException("Error")
+} catch (_: StackOverflowError) {
+    throw CalculationException("Too complex")
 }
 
 private class Evaluator(private val text: String, private val degrees: Boolean) {
@@ -154,8 +158,10 @@ private class Evaluator(private val text: String, private val degrees: Boolean) 
         }
     }
 
-    private fun bounded(value: Double) =
-        BigDecimal(value).setScale(15, RoundingMode.HALF_EVEN).stripTrailingZeros()
+    private fun bounded(value: Double): BigDecimal {
+        if (value.isNaN()) fail("Undefined")
+        return BigDecimal(value).setScale(15, RoundingMode.HALF_EVEN).stripTrailingZeros()
+    }
 
     private fun fromDouble(value: Double): BigDecimal {
         if (value.isNaN()) fail("Undefined")
