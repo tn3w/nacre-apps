@@ -59,11 +59,11 @@ data class Ringing(
 ) {
     val id get() = uri.schemeSpecificPart.toInt()
     val isAlarm get() = uri.scheme == "alarm"
-    val actions get() =
-        listOf(
-            "Snooze" to RingService.SNOOZE,
-            "Dismiss" to RingService.DISMISS
-        )
+    val actions get() = if (isAlarm) {
+        listOf("Snooze" to RingService.SNOOZE, "Dismiss" to RingService.DISMISS)
+    } else {
+        listOf("+1:00" to RingService.ADD_MINUTE, "Stop" to RingService.DISMISS)
+    }
 }
 
 class RingService : Service() {
@@ -77,6 +77,8 @@ class RingService : Service() {
         val ringing = current.value
         when (intent?.action) {
             SNOOZE -> ringing?.let { Store.snooze(it.id) }
+            ADD_MINUTE -> ringing?.let { Store.addMinute(it.id) }
+            DISMISS -> ringing?.takeUnless { it.isAlarm }?.let { Store.resetTimer(it.id) }
         }
         val uri = intent?.data
         if (uri == null) stop() else ring(uri)
@@ -109,10 +111,16 @@ class RingService : Service() {
 
     private fun describe(uri: Uri): Ringing? {
         val id = uri.schemeSpecificPart.toIntOrNull() ?: return null
+        if (uri.scheme == "timer") {
+            val timer = Store.timer(id) ?: return null
+            return Ringing(uri, timer.label.ifEmpty { "Time's up" }, null, true)
+        }
         val alarm = Store.alarm(id) ?: return null
         return Ringing(
             uri,
-            alarm.label.ifEmpty { "Alarm" },
+            alarm.label.ifEmpty {
+                "Alarm"
+            },
             alarm.ringtone,
             alarm.vibrate
         )
@@ -224,6 +232,7 @@ class RingService : Service() {
         const val CHANNEL = "ringing"
         const val SNOOZE = "snooze"
         const val DISMISS = "dismiss"
+        const val ADD_MINUTE = "add_minute"
         private const val NOTIFICATION = 1
 
         val current = MutableStateFlow<Ringing?>(null)

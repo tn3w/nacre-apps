@@ -1,6 +1,8 @@
 package org.nacre.clock
 
 import android.Manifest
+import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -23,8 +25,16 @@ import org.nacre.core.NacreTheme
 
 enum class Tab(val label: String, val icon: Int) {
     Alarm("Alarm", R.drawable.ic_alarm),
-    Clock("Clock", R.drawable.ic_clock)
+    Clock("Clock", R.drawable.ic_clock),
+    Timer("Timer", R.drawable.ic_timer)
 }
+
+fun openTab(context: Context, tab: Tab): PendingIntent = PendingIntent.getActivity(
+    context,
+    tab.ordinal,
+    Intent(context, MainActivity::class.java).putExtra("tab", tab.name),
+    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+)
 
 class MainActivity : ComponentActivity() {
     private val tab = mutableStateOf(Tab.Alarm)
@@ -77,6 +87,7 @@ fun ClockApp(tab: MutableState<Tab>) {
             when (tab.value) {
                 Tab.Alarm -> AlarmScreen()
                 Tab.Clock -> ClockScreen()
+                Tab.Timer -> TimerScreen()
             }
         }
     }

@@ -70,24 +70,28 @@ object Scheduler {
         val manager = context.getSystemService(AlarmManager::class.java)
         val operation = broadcast(context, "alarm:${alarm.id}")
         val trigger = alarm.trigger() ?: return manager.cancel(operation)
-        val show =
-            PendingIntent.getActivity(
-                context,
-                0,
-                Intent(context, MainActivity::class.java).putExtra("tab", Tab.Alarm.name),
-                PendingIntent.FLAG_IMMUTABLE
-            )
+        val show = openTab(context, Tab.Alarm)
         manager.setAlarmClock(AlarmManager.AlarmClockInfo(trigger, show), operation)
     }
 
-    fun cancel(context: Context, alarm: Alarm) {
-        context
-            .getSystemService(AlarmManager::class.java)
-            .cancel(broadcast(context, "alarm:${alarm.id}"))
+    fun schedule(context: Context, timer: Timer) {
+        val manager = context.getSystemService(AlarmManager::class.java)
+        val operation = broadcast(context, "timer:${timer.id}")
+        if (!timer.running) return manager.cancel(operation)
+        manager.setExactAndAllowWhileIdle(
+            AlarmManager.RTC_WAKEUP,
+            timer.endsAt,
+            operation
+        )
+    }
+
+    fun cancel(context: Context, uri: String) {
+        context.getSystemService(AlarmManager::class.java).cancel(broadcast(context, uri))
     }
 
     fun rescheduleAll(context: Context) {
         Store.alarms.value.forEach { schedule(context, it) }
+        Store.timers.value.forEach { schedule(context, it) }
     }
 
     private fun broadcast(context: Context, uri: String) = PendingIntent.getBroadcast(
@@ -101,14 +105,15 @@ object Scheduler {
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val uri = intent.data ?: return
-        val alarm = Store.alarm(uri.schemeSpecificPart.toInt()) ?: return
-        Store.saveAlarm(
-            alarm.copy(
-                snoozedUntil = 0,
-                enabled =
-                    alarm.enabled && alarm.days.isNotEmpty()
-            )
-        )
+        val id = uri.schemeSpecificPart.toInt()
+        if (uri.scheme == "alarm") {
+            val alarm = Store.alarm(id) ?: return
+            val enabled = alarm.enabled && alarm.days.isNotEmpty()
+            Store.saveAlarm(alarm.copy(snoozedUntil = 0, enabled = enabled))
+        } else {
+            val timer = Store.timer(id)?.takeIf { it.running } ?: return
+            notifyTimer(context, timer)
+        }
         RingService.start(context, uri)
     }
 }

@@ -37,3 +37,11 @@ fun formatSpan(totalMinutes: Long): String {
     if (hours == 0L) return "$minutes min"
     return if (minutes == 0L) "$hours h" else "$hours h $minutes min"
 }
+
+fun formatClock(totalSeconds: Long): String {
+    val hours = totalSeconds / 3600
+    val minutes = totalSeconds / 60 % 60
+    val seconds = totalSeconds % 60
+    if (hours > 0) return "%d:%02d:%02d".format(hours, minutes, seconds)
+    return "%d:%02d".format(minutes, seconds)
+}
