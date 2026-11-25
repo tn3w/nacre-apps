@@ -29,7 +29,11 @@ enum class Tab(val label: String, val icon: Int) {
     Alarm("Alarm", R.drawable.ic_alarm),
     Clock("Clock", R.drawable.ic_clock),
     Timer("Timer", R.drawable.ic_timer),
-    Stopwatch("Stopwatch", R.drawable.ic_stopwatch)
+    Stopwatch("Stopwatch", R.drawable.ic_stopwatch);
+
+    companion object {
+        fun named(name: String?) = entries.find { it.name == name }
+    }
 }
 
 fun openTab(context: Context, tab: Tab): PendingIntent = PendingIntent.getActivity(
@@ -47,7 +51,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         window.isNavigationBarContrastEnforced = false
-        tab.value = Tab.valueOf(savedInstanceState?.getString("tab") ?: Tab.Alarm.name)
+        Tab.named(savedInstanceState?.getString("tab"))?.let { tab.value = it }
         if (savedInstanceState == null) handle(intent)
         if (intent.getBooleanExtra(AlarmClock.EXTRA_SKIP_UI, false)) return finish()
         setContent { NacreTheme { ClockApp(tab, creatingAlarm) } }
@@ -69,47 +73,52 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handle(intent: Intent) {
-        intent.getStringExtra("tab")?.let { tab.value = Tab.valueOf(it) }
+        val trusted = intent.component?.className == "$packageName.SetAlarm"
+        Tab.named(intent.getStringExtra("tab"))?.let { tab.value = it }
         when (intent.action) {
-            AlarmClock.ACTION_SET_ALARM -> setAlarm(intent)
-            AlarmClock.ACTION_SET_TIMER -> setTimer(intent)
+            AlarmClock.ACTION_SET_ALARM -> setAlarm(intent, trusted)
+            AlarmClock.ACTION_SET_TIMER -> setTimer(intent, trusted)
             AlarmClock.ACTION_SHOW_ALARMS -> tab.value = Tab.Alarm
             AlarmClock.ACTION_SHOW_TIMERS -> tab.value = Tab.Timer
-            AlarmClock.ACTION_DISMISS_ALARM -> sendToRingingAlarm(RingService.DISMISS)
-            AlarmClock.ACTION_SNOOZE_ALARM -> sendToRingingAlarm(RingService.SNOOZE)
+            AlarmClock.ACTION_DISMISS_ALARM -> if (trusted) answer(RingService.DISMISS)
+            AlarmClock.ACTION_SNOOZE_ALARM -> if (trusted) answer(RingService.SNOOZE)
         }
     }
 
-    private fun setAlarm(intent: Intent) {
+    private fun setAlarm(intent: Intent, trusted: Boolean) {
         tab.value = Tab.Alarm
-        if (!intent.hasExtra(AlarmClock.EXTRA_HOUR)) {
+        val hour = intent.getIntExtra(AlarmClock.EXTRA_HOUR, -1)
+        val minute = intent.getIntExtra(AlarmClock.EXTRA_MINUTES, 0)
+        if (!trusted || hour !in 0..23 || minute !in 0..59) {
             creatingAlarm.value = true
             return
         }
+
         val days = intent.getIntegerArrayListExtra(AlarmClock.EXTRA_DAYS).orEmpty()
+            .filter { it in 1..7 }
             .map { DayOfWeek.of((it + 5) % 7 + 1) }
-        val alarm = Store.newAlarm(
-            intent.getIntExtra(AlarmClock.EXTRA_HOUR, 0),
-            intent.getIntExtra(AlarmClock.EXTRA_MINUTES, 0)
-        ).copy(
+        val alarm = Alarm(
+            id = 0,
+            hour = hour,
+            minute = minute,
             days = days.toSet(),
             label = intent.getStringExtra(AlarmClock.EXTRA_MESSAGE).orEmpty(),
             vibrate = intent.getBooleanExtra(AlarmClock.EXTRA_VIBRATE, true)
         )
-        Store.saveAlarm(alarm)
-        announce(this, alarm)
+        announce(this, Store.addAlarm(alarm))
     }
 
-    private fun setTimer(intent: Intent) {
+    private fun setTimer(intent: Intent, trusted: Boolean) {
         tab.value = Tab.Timer
         val seconds = intent.getIntExtra(AlarmClock.EXTRA_LENGTH, 0)
-        if (seconds <= 0) return
+        if (!trusted || seconds !in 1..86_400) return
         val label = intent.getStringExtra(AlarmClock.EXTRA_MESSAGE).orEmpty()
         Store.newTimer(seconds * 1000L, label)
     }
 
-    private fun sendToRingingAlarm(action: String) {
-        if (RingService.current.value?.isAlarm == true) RingService.send(this, action)
+    private fun answer(action: String) {
+        val ringing = RingService.current.value?.takeIf { it.isAlarm } ?: return
+        RingService.send(this, action, ringing.uri)
     }
 }
 

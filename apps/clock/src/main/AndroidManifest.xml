@@ -10,6 +10,7 @@
 
   <application
     android:name=".ClockApplication"
+    android:dataExtractionRules="@xml/data_extraction_rules"
     android:icon="@mipmap/ic_launcher"
     android:label="Clock"
     android:theme="@style/Theme.Clock">

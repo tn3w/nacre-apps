@@ -7,8 +7,8 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.text.format.DateFormat
+import androidx.core.net.toUri
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.ZoneId
@@ -30,14 +30,17 @@ data class Alarm(
     val snoozedUntil: Long = 0,
     val skipped: Long = 0
 ) {
-    fun next(now: ZonedDateTime = ZonedDateTime.now()): ZonedDateTime {
-        val today = now.toLocalDate().atTime(hour, minute).atZone(now.zone)
-        return (0..14L).map { today.plusDays(it) }.first {
+    init {
+        require(hour in 0..23 && minute in 0..59)
+    }
+
+    fun next(now: ZonedDateTime = ZonedDateTime.now()): ZonedDateTime = (0..14L)
+        .map { now.toLocalDate().plusDays(it).atTime(hour, minute).atZone(now.zone) }
+        .first {
             it.isAfter(now) &&
                 (days.isEmpty() || it.dayOfWeek in days) &&
                 it.toInstant().toEpochMilli() != skipped
         }
-    }
 
     fun trigger(now: Long = System.currentTimeMillis()): Long? {
         val snooze = snoozedUntil.takeIf { it > now }
@@ -128,7 +131,7 @@ object Scheduler {
         PendingIntent.getBroadcast(
             context,
             0,
-            Intent(context, AlarmReceiver::class.java).setData(Uri.parse(uri)),
+            Intent(context, AlarmReceiver::class.java).setData(uri.toUri()),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 }
@@ -136,7 +139,7 @@ object Scheduler {
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val uri = intent.data ?: return
-        val id = uri.schemeSpecificPart.toInt()
+        val id = uri.schemeSpecificPart.toIntOrNull() ?: return
         when (uri.scheme) {
             "alarm" -> {
                 val alarm = Store.alarm(id) ?: return

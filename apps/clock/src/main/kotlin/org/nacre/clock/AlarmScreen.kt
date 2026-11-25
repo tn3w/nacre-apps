@@ -58,6 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.core.net.toUri
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
@@ -123,7 +124,7 @@ fun AlarmScreen(creatingAlarm: MutableState<Boolean>) {
             now.minute,
             onDismiss = { creating = false }
         ) { hour, minute ->
-            val alarm = Store.newAlarm(hour, minute)
+            val alarm = Store.addAlarm(Alarm(0, hour, minute))
             expanded = alarm.id
             announce(context, alarm)
         }
@@ -196,21 +197,21 @@ private fun AlarmDetails(alarm: Alarm) {
     val context = LocalContext.current
     var label by remember(alarm.id) { mutableStateOf(alarm.label) }
     val title = remember(alarm.ringtone) { ringtoneTitle(context, alarm.ringtone) }
-    val picker =
-        rememberLauncherForActivityResult(StartActivityForResult()) { result ->
-            if (result.resultCode !=
-                Activity.RESULT_OK
-            ) {
-                return@rememberLauncherForActivityResult
-            }
-            val uri =
-                result.data?.getParcelableExtra(
-                    RingtoneManager.EXTRA_RINGTONE_PICKED_URI,
-                    Uri::class.java
-                )
-            val ringtone = uri?.takeIf { it != Settings.System.DEFAULT_ALARM_ALERT_URI }
-            Store.saveAlarm(alarm.copy(ringtone = ringtone?.toString()))
+    val picker = rememberLauncherForActivityResult(StartActivityForResult()) { result ->
+        if (result.resultCode !=
+            Activity.RESULT_OK
+        ) {
+            return@rememberLauncherForActivityResult
         }
+        val uri = result.data?.getParcelableExtra(
+            RingtoneManager.EXTRA_RINGTONE_PICKED_URI,
+            Uri::class.java
+        )
+        val ringtone = uri?.takeIf {
+            it.scheme == "content" && it != Settings.System.DEFAULT_ALARM_ALERT_URI
+        }
+        Store.saveAlarm(alarm.copy(ringtone = ringtone?.toString()))
+    }
 
     Column(
         Modifier.padding(top = 20.dp),
@@ -227,7 +228,10 @@ private fun AlarmDetails(alarm: Alarm) {
             label = { Text("Label") },
             singleLine = true
         )
-        Setting("Sound", { picker.launch(ringtonePicker(alarm.ringtone)) }) {
+        Setting(
+            "Sound",
+            { runCatching { picker.launch(ringtonePicker(alarm.ringtone)) } }
+        ) {
             Text(title, color = MaterialTheme.colorScheme.outline)
         }
         Setting("Vibrate", { Store.saveAlarm(alarm.copy(vibrate = !alarm.vibrate)) }) {
@@ -329,52 +333,36 @@ private fun summary(alarm: Alarm, formatter: DateTimeFormatter): String {
         val day = Instant.ofEpochMilli(it).atZone(zone).dayOfWeek
         "Skipping " + day.getDisplayName(TextStyle.SHORT, Locale.getDefault())
     }
+    val repeat = snoozed ?: repeatText(alarm)
     return listOfNotNull(
         alarm.label.ifBlank {
             null
         },
-        snoozed ?: repeatText(alarm),
+        repeat,
         skipping
-    )
-        .joinToString(" · ")
+    ).joinToString(" · ")
 }
 
 private fun repeatText(alarm: Alarm): String {
     val weekend = setOf(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY)
     return when {
-        alarm.days.isEmpty() && !alarm.enabled -> {
-            "Not scheduled"
-        }
+        alarm.days.isEmpty() && !alarm.enabled -> "Not scheduled"
 
-        alarm.days.isEmpty() -> {
-            if (alarm.next().toLocalDate() ==
-                LocalDate.now()
-            ) {
-                "Today"
-            } else {
-                "Tomorrow"
+        alarm.days.isEmpty() && alarm.next().toLocalDate() == LocalDate.now() -> "Today"
+
+        alarm.days.isEmpty() -> "Tomorrow"
+
+        alarm.days.size == 7 -> "Every day"
+
+        alarm.days == DayOfWeek.entries.toSet() - weekend -> "Weekdays"
+
+        alarm.days == weekend -> "Weekends"
+
+        else -> orderedDays()
+            .filter { it in alarm.days }
+            .joinToString(", ") {
+                it.getDisplayName(TextStyle.SHORT, Locale.getDefault())
             }
-        }
-
-        alarm.days.size == 7 -> {
-            "Every day"
-        }
-
-        alarm.days == DayOfWeek.entries.toSet() - weekend -> {
-            "Weekdays"
-        }
-
-        alarm.days == weekend -> {
-            "Weekends"
-        }
-
-        else -> {
-            orderedDays()
-                .filter { it in alarm.days }
-                .joinToString(
-                    ", "
-                ) { it.getDisplayName(TextStyle.SHORT, Locale.getDefault()) }
-        }
     }
 }
 
@@ -388,10 +376,10 @@ private fun ringtonePicker(ringtone: String?) =
             Settings.System.DEFAULT_ALARM_ALERT_URI
         ).putExtra(
             RingtoneManager.EXTRA_RINGTONE_EXISTING_URI,
-            ringtone?.let(Uri::parse) ?: Settings.System.DEFAULT_ALARM_ALERT_URI
+            ringtone?.toUri() ?: Settings.System.DEFAULT_ALARM_ALERT_URI
         )
 
 private fun ringtoneTitle(context: Context, ringtone: String?): String {
-    val uri = ringtone?.let(Uri::parse) ?: return "Default"
+    val uri = ringtone?.toUri() ?: return "Default"
     return RingtoneManager.getRingtone(context, uri)?.getTitle(context) ?: "Default"
 }

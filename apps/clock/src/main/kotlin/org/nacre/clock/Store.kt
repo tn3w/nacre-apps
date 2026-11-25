@@ -6,6 +6,8 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import androidx.core.content.edit
+import java.time.ZoneId
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
@@ -44,7 +46,7 @@ object Store {
     operator fun get(option: Option) = preferences.getInt(option.name, option.default)
 
     operator fun set(option: Option, value: Int) {
-        preferences.edit().putInt(option.name, value).apply()
+        preferences.edit { putInt(option.name, value) }
     }
 
     fun init(application: Context) {
@@ -52,13 +54,16 @@ object Store {
         val storage = context.createDeviceProtectedStorageContext()
         storage.moveSharedPreferencesFrom(context, "clock")
         preferences = storage.getSharedPreferences("clock", Context.MODE_PRIVATE)
-        zones.value =
-            preferences.getString("zones", "")!!.split(",").filter { it.isNotEmpty() }
-        alarms.value = readList("alarms", Alarm::fromJson)
-        timers.value = readList("timers", Timer::fromJson)
-        preferences.getString("stopwatch", null)?.let {
-            stopwatch.value = Stopwatch.fromJson(JSONObject(it))
-        }
+        val available = ZoneId.getAvailableZoneIds()
+        zones.value = preferences.getString("zones", "").orEmpty()
+            .split(",")
+            .filter { it in available }
+            .distinct()
+        alarms.value = readList("alarms", Alarm::fromJson).distinctBy(Alarm::id)
+        timers.value = readList("timers", Timer::fromJson).distinctBy(Timer::id)
+        stopwatch.value = runCatching {
+            Stopwatch.fromJson(JSONObject(preferences.getString("stopwatch", null)!!))
+        }.getOrDefault(Stopwatch())
     }
 
     fun addZone(zone: String) = saveZones(zones.value - zone + zone)
@@ -67,15 +72,14 @@ object Store {
 
     private fun saveZones(list: List<String>) {
         zones.value = list
-        preferences.edit().putString("zones", list.joinToString(",")).apply()
+        preferences.edit { putString("zones", list.joinToString(",")) }
     }
 
     fun alarm(id: Int) = alarms.value.find { it.id == id }
 
-    fun newAlarm(hour: Int, minute: Int): Alarm {
-        val alarm = Alarm((alarms.value.maxOfOrNull { it.id } ?: 0) + 1, hour, minute)
-        saveAlarm(alarm)
-        return alarm
+    fun addAlarm(alarm: Alarm): Alarm {
+        val id = (alarms.value.maxOfOrNull { it.id } ?: 0) + 1
+        return alarm.copy(id = id).also(::saveAlarm)
     }
 
     fun saveAlarm(alarm: Alarm) {
@@ -94,14 +98,11 @@ object Store {
 
     fun skip(id: Int) {
         val alarm = alarm(id) ?: return
+        val snoozed = alarm.snoozedUntil > System.currentTimeMillis()
         saveAlarm(
             when {
-                alarm.snoozedUntil > System.currentTimeMillis() -> alarm.copy(
-                    snoozedUntil = 0
-                )
-
+                snoozed -> alarm.copy(snoozedUntil = 0)
                 alarm.days.isEmpty() -> alarm.copy(enabled = false)
-
                 else -> alarm.copy(skipped = alarm.trigger() ?: 0)
             }
         )
@@ -137,13 +138,15 @@ object Store {
         timers.value = timers.value.filter { it.id != timer.id }
         writeList("timers", timers.value.map(Timer::toJson))
         Scheduler.cancel(context, "timer:${timer.id}")
-        notifyTimer(context, timer.reset())
+        context.getSystemService(
+            NotificationManager::class.java
+        ).cancel("timer", timer.id)
         silence("timer:${timer.id}")
     }
 
     fun saveStopwatch(value: Stopwatch) {
         stopwatch.value = value
-        preferences.edit().putString("stopwatch", value.toJson().toString()).apply()
+        preferences.edit { putString("stopwatch", value.toJson().toString()) }
         notifyStopwatch(context, value)
     }
 
@@ -154,11 +157,14 @@ object Store {
     fun resetTimer(id: Int) = timer(id)?.let { saveTimer(it.reset()) }
 
     private fun <T> readList(key: String, parse: (JSONObject) -> T): List<T> {
-        val array = JSONArray(preferences.getString(key, "[]"))
-        return List(array.length()) { parse(array.getJSONObject(it)) }
+        val array = runCatching { JSONArray(preferences.getString(key, "[]")) }
+            .getOrDefault(JSONArray())
+        return List(array.length()) { it }.mapNotNull {
+            runCatching { parse(array.getJSONObject(it)) }.getOrNull()
+        }
     }
 
     private fun writeList(key: String, items: List<JSONObject>) {
-        preferences.edit().putString(key, JSONArray(items).toString()).apply()
+        preferences.edit { putString(key, JSONArray(items).toString()) }
     }
 }

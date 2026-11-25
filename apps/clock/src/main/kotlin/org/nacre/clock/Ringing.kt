@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.net.toUri
 import java.time.Instant
 import java.time.ZoneId
 import kotlinx.coroutines.Job
@@ -74,25 +75,14 @@ class RingService : Service() {
     override fun onBind(intent: Intent?) = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val ringing = current.value
         val uri = intent?.data
-        when (intent?.action) {
-            SNOOZE -> ringing?.let { Store.snooze(it.id) }
-            ADD_MINUTE -> ringing?.let { Store.addMinute(it.id) }
-            DISMISS -> ringing?.takeUnless { it.isAlarm }?.let { Store.resetTimer(it.id) }
-        }
-        when {
-            intent?.action == SILENCE -> if (ringing?.uri ==
-                uri
-            ) {
-                next()
-            } else {
-                queue.remove(uri)
+        val action = intent?.action
+        if (uri != null) {
+            when (action) {
+                null -> ring(uri)
+                SILENCE -> drop(uri)
+                else -> answer(action, uri)
             }
-
-            uri != null -> ring(uri)
-
-            else -> next()
         }
         if (current.value == null) stop()
         return START_NOT_STICKY
@@ -104,25 +94,31 @@ class RingService : Service() {
         current.value = null
     }
 
+    private fun answer(action: String, uri: Uri) {
+        val ringing = current.value?.takeIf { it.uri == uri } ?: return
+        when (action) {
+            SNOOZE -> Store.snooze(ringing.id)
+            ADD_MINUTE -> Store.addMinute(ringing.id)
+            DISMISS -> if (!ringing.isAlarm) Store.resetTimer(ringing.id)
+        }
+        next()
+    }
+
+    private fun drop(uri: Uri) {
+        if (current.value?.uri == uri) next() else queue.remove(uri)
+    }
+
     private fun ring(uri: Uri) {
         val active = current.value
         if (active != null && active.uri != uri) {
             if (uri !in queue) queue.addLast(uri)
-            startForeground(
-                NOTIFICATION,
-                notification(active),
-                FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
-            )
-            return
+            return showForeground(active)
         }
+
         val ringing = describe(uri) ?: return
         silence()
         current.value = ringing
-        startForeground(
-            NOTIFICATION,
-            notification(ringing),
-            FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
-        )
+        showForeground(ringing)
         if (ringing.vibrate) vibrate()
         sound = scope.launch {
             launch { play(ringing.ringtone) }
@@ -154,9 +150,9 @@ class RingService : Service() {
     private suspend fun play(ringtone: String?) {
         val candidates =
             listOfNotNull(
-                ringtone?.let(Uri::parse),
+                ringtone?.toUri(),
                 RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
-                Uri.parse("android.resource://$packageName/${R.raw.fallback_alarm}")
+                "android.resource://$packageName/${R.raw.fallback_alarm}".toUri()
             )
         val player = candidates.firstNotNullOfOrNull(::open) ?: return
         this.player = player
@@ -212,42 +208,43 @@ class RingService : Service() {
         stopSelf()
     }
 
+    private fun showForeground(ringing: Ringing) {
+        val type = FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
+        startForeground(NOTIFICATION, notification(ringing), type)
+    }
+
     private fun notification(ringing: Ringing): Notification {
-        val screen =
-            PendingIntent.getActivity(
+        val screen = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(
+                this,
+                RingActivity::class.java
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+        val icon = if (ringing.isAlarm) R.drawable.ic_alarm else R.drawable.ic_timer
+        val builder = Notification.Builder(this, CHANNEL)
+            .setSmallIcon(icon)
+            .setContentTitle(ringing.title)
+            .setCategory(Notification.CATEGORY_ALARM)
+            .setOngoing(true)
+            .setFullScreenIntent(screen, true)
+            .setContentIntent(screen)
+        ringing.actions.forEach { (label, action) ->
+            val intent = PendingIntent.getService(
                 this,
                 0,
-                Intent(
-                    this,
-                    RingActivity::class.java
-                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                command(this, action, ringing.uri),
                 PendingIntent.FLAG_IMMUTABLE
             )
-        val icon = if (ringing.isAlarm) R.drawable.ic_alarm else R.drawable.ic_timer
-        val builder =
-            Notification
-                .Builder(this, CHANNEL)
-                .setSmallIcon(icon)
-                .setContentTitle(ringing.title)
-                .setCategory(Notification.CATEGORY_ALARM)
-                .setOngoing(true)
-                .setFullScreenIntent(screen, true)
-                .setContentIntent(screen)
-        ringing.actions.forEach { (label, action) ->
-            val intent =
-                PendingIntent.getService(
-                    this,
-                    0,
-                    Intent(this, RingService::class.java).setAction(action),
-                    PendingIntent.FLAG_IMMUTABLE
-                )
             builder.addAction(
-                Notification.Action
-                    .Builder(
-                        Icon.createWithResource(this, icon),
-                        label,
-                        intent
-                    ).build()
+                Notification.Action.Builder(
+                    Icon.createWithResource(this, icon),
+                    label,
+                    intent
+                )
+                    .build()
             )
         }
         return builder.build()
@@ -270,16 +267,15 @@ class RingService : Service() {
         }
 
         fun silence(context: Context, uri: String) {
-            if (current.value == null) return
-            val intent = Intent(context, RingService::class.java).setData(Uri.parse(uri))
-            context.startService(intent.setAction(SILENCE))
+            if (current.value != null) send(context, SILENCE, uri.toUri())
         }
 
-        fun send(context: Context, action: String) {
-            context.startService(
-                Intent(context, RingService::class.java).setAction(action)
-            )
+        fun send(context: Context, action: String, uri: Uri) {
+            context.startService(command(context, action, uri))
         }
+
+        private fun command(context: Context, action: String, uri: Uri) =
+            Intent(context, RingService::class.java).setAction(action).setData(uri)
     }
 }
 
@@ -295,7 +291,7 @@ class RingActivity : ComponentActivity() {
                     LaunchedEffect(Unit) { finish() }
                     return@NacreTheme
                 }
-                RingScreen(current) { RingService.send(this, it) }
+                RingScreen(current) { RingService.send(this, it, current.uri) }
             }
         }
     }
@@ -304,12 +300,8 @@ class RingActivity : ComponentActivity() {
 @Composable
 private fun RingScreen(ringing: Ringing, onAction: (String) -> Unit) {
     val now by rememberNow()
-    val time =
-        Instant
-            .ofEpochMilli(
-                now
-            ).atZone(ZoneId.systemDefault())
-            .format(timeFormatter())
+    val time = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault())
+        .format(timeFormatter())
 
     Surface(Modifier.fillMaxSize()) {
         Column(
