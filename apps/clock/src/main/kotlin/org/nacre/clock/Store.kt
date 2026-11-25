@@ -27,10 +27,15 @@ class ClockApplication : Application() {
             listOf(
                 ringing,
                 NotificationChannel(Timer.CHANNEL, "Timers", low),
-                NotificationChannel(Alarm.UPCOMING_CHANNEL, "Upcoming alarms", low)
+                NotificationChannel(Alarm.UPCOMING_CHANNEL, "Upcoming alarms", low),
+                NotificationChannel(
+                    Alarm.MISSED_CHANNEL,
+                    "Missed alarms",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                )
             )
         )
-        Scheduler.rescheduleAll(this)
+        Scheduler.rescheduleAll(this, late = false)
     }
 }
 
@@ -82,7 +87,8 @@ object Store {
         return alarm.copy(id = id).also(::saveAlarm)
     }
 
-    fun saveAlarm(alarm: Alarm) {
+    fun saveAlarm(changed: Alarm) {
+        val alarm = changed.copy(scheduled = changed.trigger() ?: 0)
         val list = alarms.value.filter { it.id != alarm.id } + alarm
         alarms.value = list.sortedBy { it.hour * 60 + it.minute }
         writeList("alarms", alarms.value.map(Alarm::toJson))
@@ -94,6 +100,11 @@ object Store {
         writeList("alarms", alarms.value.map(Alarm::toJson))
         Scheduler.schedule(context, alarm.copy(enabled = false, snoozedUntil = 0))
         silence("alarm:${alarm.id}")
+    }
+
+    fun advance(alarm: Alarm) {
+        val enabled = alarm.enabled && alarm.days.isNotEmpty()
+        saveAlarm(alarm.copy(snoozedUntil = 0, enabled = enabled))
     }
 
     fun skip(id: Int) {
