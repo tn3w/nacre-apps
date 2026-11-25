@@ -11,11 +11,11 @@ timer() {
 
 stage() {
     local time alarms timers stopwatch
-    time=$(now)
+    time=$(elapsed)
     alarms="$(alarm 1 6 30 31 Work),$(alarm 2 8 0 96 Run),$(alarm 3 21 45 0 Read)"
     timers="$(timer 1 540000 513000 0 Pasta),"
     timers+="$(timer 2 240000 240000 $((time + 205000)) Tea)"
-    stopwatch='{"accumulated":0,"startedAt":'$((time - 32000))',"laps":[3110,5730,9150]}'
+    stopwatch='{"accumulated":32000,"startedAt":'$time',"laps":[3110,5730,9150]}'
 
     preferences clock <<EOF
 <string name="zones">Asia/Tokyo,Europe/London,America/New_York</string>

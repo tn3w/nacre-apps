@@ -18,8 +18,8 @@ cleanup() {
     rm -rf "$work"
 }
 
-now() {
-    adb shell date +%s%3N | tr -d '\r'
+elapsed() {
+    adb shell cat /proc/uptime | awk '{ printf "%d", $1 * 1000 }'
 }
 
 preferences() {
