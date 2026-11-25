@@ -50,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -253,7 +254,8 @@ fun Setting(title: String, onClick: () -> Unit, value: @Composable () -> Unit) {
 @Composable
 private fun DayPicker(days: Set<DayOfWeek>, onChange: (Set<DayOfWeek>) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        orderedDays().forEach { day ->
+        val locale = LocalConfiguration.current.locales[0]
+        orderedDays(locale).forEach { day ->
             val selected = day in days
             val colors = MaterialTheme.colorScheme
             Box(
@@ -269,7 +271,7 @@ private fun DayPicker(days: Set<DayOfWeek>, onChange: (Set<DayOfWeek>) -> Unit) 
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    day.getDisplayName(TextStyle.NARROW, Locale.getDefault()),
+                    day.getDisplayName(TextStyle.NARROW, locale),
                     color = if (selected) colors.onPrimary else colors.onSurface
                 )
             }
@@ -311,8 +313,8 @@ fun TimeDialog(
     }
 }
 
-private fun orderedDays(): List<DayOfWeek> {
-    val first = WeekFields.of(Locale.getDefault()).firstDayOfWeek
+private fun orderedDays(locale: Locale = Locale.getDefault()): List<DayOfWeek> {
+    val first = WeekFields.of(locale).firstDayOfWeek
     return List(7) { first.plus(it.toLong()) }
 }
 

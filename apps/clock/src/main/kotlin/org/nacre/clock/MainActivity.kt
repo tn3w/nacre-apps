@@ -45,6 +45,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        window.isNavigationBarContrastEnforced = false
         tab.value = Tab.valueOf(savedInstanceState?.getString("tab") ?: Tab.Alarm.name)
         if (savedInstanceState == null) handle(intent)
         if (intent.getBooleanExtra(AlarmClock.EXTRA_SKIP_UI, false)) return finish()

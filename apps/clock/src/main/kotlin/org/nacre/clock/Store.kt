@@ -28,6 +28,7 @@ class ClockApplication : Application() {
                 NotificationChannel(Alarm.UPCOMING_CHANNEL, "Upcoming alarms", low)
             )
         )
+        Scheduler.rescheduleAll(this)
     }
 }
 

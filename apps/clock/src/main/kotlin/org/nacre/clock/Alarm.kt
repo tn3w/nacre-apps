@@ -104,7 +104,7 @@ object Scheduler {
     fun schedule(context: Context, timer: Timer) {
         val manager = context.getSystemService(AlarmManager::class.java)
         val operation = broadcast(context, "timer:${timer.id}")
-        if (!timer.running) return manager.cancel(operation)
+        if (!timer.running || timer.left() <= 0) return manager.cancel(operation)
         manager.setExactAndAllowWhileIdle(
             AlarmManager.RTC_WAKEUP,
             timer.endsAt,
@@ -118,7 +118,11 @@ object Scheduler {
 
     fun rescheduleAll(context: Context) {
         Store.alarms.value.forEach { schedule(context, it) }
-        Store.timers.value.forEach { schedule(context, it) }
+        Store.timers.value.forEach {
+            schedule(context, it)
+            notifyTimer(context, it)
+        }
+        notifyStopwatch(context, Store.stopwatch.value)
     }
 
     fun broadcast(context: Context, uri: String): PendingIntent =
