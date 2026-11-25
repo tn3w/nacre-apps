@@ -28,10 +28,6 @@ preferences() {
         adb shell "run-as $package sh -c 'mkdir -p ${file%/*} && cat > $file'"
 }
 
-logo() {
-    rsvg-convert -w 128 "$work/icons/$1/$tag.svg" | magick - -strip "$readme/logo-$2.png"
-}
-
 capture() {
     local parts=()
     adb shell cmd uimode night "$2" >/dev/null
@@ -55,9 +51,7 @@ capture() {
 trap cleanup EXIT
 source "$readme/screens.sh"
 
-python3 scripts/sheen.py "icons/$tag.svg" -o "$work/icons" >/dev/null
-logo black light
-logo white dark
+scripts/logo.sh "$tag"
 
 adb shell pm clear "$package" >/dev/null
 adb shell pm grant "$package" android.permission.POST_NOTIFICATIONS 2>/dev/null || true
