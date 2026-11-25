@@ -83,7 +83,7 @@ Minimal, private system apps for a GrapheneOS-like Android ROM. No Google, no ne
   </picture>
 </p>
 
-<p align="center">Default SMS and MMS app with reactions, photos and files, hardened against zero-click attacks with images decoded in a sandbox.</p>
+<p align="center">Private texting with group chats, reactions, photos and files over SMS and MMS.</p>
 
 <p align="center">
   <picture>
