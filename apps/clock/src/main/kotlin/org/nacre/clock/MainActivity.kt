@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.provider.AlarmClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -21,6 +22,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import java.time.DayOfWeek
 import org.nacre.core.NacreTheme
 
 enum class Tab(val label: String, val icon: Int) {
@@ -44,7 +46,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         tab.value = Tab.valueOf(savedInstanceState?.getString("tab") ?: Tab.Alarm.name)
-        handle(intent)
+        if (savedInstanceState == null) handle(intent)
+        if (intent.getBooleanExtra(AlarmClock.EXTRA_SKIP_UI, false)) return finish()
         setContent { NacreTheme { ClockApp(tab) } }
 
         val permission = Manifest.permission.POST_NOTIFICATIONS
@@ -65,6 +68,43 @@ class MainActivity : ComponentActivity() {
 
     private fun handle(intent: Intent) {
         intent.getStringExtra("tab")?.let { tab.value = Tab.valueOf(it) }
+        when (intent.action) {
+            AlarmClock.ACTION_SET_ALARM -> setAlarm(intent)
+            AlarmClock.ACTION_SET_TIMER -> setTimer(intent)
+            AlarmClock.ACTION_SHOW_ALARMS -> tab.value = Tab.Alarm
+            AlarmClock.ACTION_SHOW_TIMERS -> tab.value = Tab.Timer
+            AlarmClock.ACTION_DISMISS_ALARM -> sendToRingingAlarm(RingService.DISMISS)
+            AlarmClock.ACTION_SNOOZE_ALARM -> sendToRingingAlarm(RingService.SNOOZE)
+        }
+    }
+
+    private fun setAlarm(intent: Intent) {
+        tab.value = Tab.Alarm
+        if (!intent.hasExtra(AlarmClock.EXTRA_HOUR)) return
+        val days = intent.getIntegerArrayListExtra(AlarmClock.EXTRA_DAYS).orEmpty()
+            .map { DayOfWeek.of((it + 5) % 7 + 1) }
+        val alarm = Store.newAlarm(
+            intent.getIntExtra(AlarmClock.EXTRA_HOUR, 0),
+            intent.getIntExtra(AlarmClock.EXTRA_MINUTES, 0)
+        ).copy(
+            days = days.toSet(),
+            label = intent.getStringExtra(AlarmClock.EXTRA_MESSAGE).orEmpty(),
+            vibrate = intent.getBooleanExtra(AlarmClock.EXTRA_VIBRATE, true)
+        )
+        Store.saveAlarm(alarm)
+        announce(this, alarm)
+    }
+
+    private fun setTimer(intent: Intent) {
+        tab.value = Tab.Timer
+        val seconds = intent.getIntExtra(AlarmClock.EXTRA_LENGTH, 0)
+        if (seconds <= 0) return
+        val label = intent.getStringExtra(AlarmClock.EXTRA_MESSAGE).orEmpty()
+        Store.newTimer(seconds * 1000L, label)
+    }
+
+    private fun sendToRingingAlarm(action: String) {
+        if (RingService.current.value?.isAlarm == true) RingService.send(this, action)
     }
 }
 

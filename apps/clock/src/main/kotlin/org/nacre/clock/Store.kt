@@ -95,9 +95,9 @@ object Store {
 
     fun timer(id: Int) = timers.value.find { it.id == id }
 
-    fun newTimer(duration: Long) {
+    fun newTimer(duration: Long, label: String = "") {
         val id = (timers.value.maxOfOrNull { it.id } ?: 0) + 1
-        saveTimer(Timer(id, duration).toggled())
+        saveTimer(Timer(id, duration, label = label).toggled())
     }
 
     fun saveTimer(timer: Timer) {
