@@ -425,12 +425,11 @@ fun FilesApp(tabState: MutableState<Tab>) {
                 }
             },
             detail = { entry ->
-                if (tab == Tab.Browse &&
-                    plain
-                ) {
-                    null
-                } else {
-                    entry.file.parentFile?.let(Disk::name)
+                val original = trash.find { it.path == entry.file.path }?.original
+                when {
+                    plain -> null
+                    original != null -> File(original).parentFile?.let(Disk::name)
+                    else -> entry.file.parentFile?.let(Disk::name)
                 }
             },
             header = {

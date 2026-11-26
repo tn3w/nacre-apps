@@ -148,6 +148,24 @@ Minimal, private system apps for a GrapheneOS-like Android ROM. No Google, no ne
 
 <br>
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/files/readme/badge-dark.png">
+    <img src="apps/files/readme/badge-light.png" width="196" alt="Files">
+  </picture>
+</p>
+
+<p align="center">File manager with categories, search, starred files, trash, copy and move, zip archives, a text editor and a sandboxed PDF viewer.</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/files/readme/screens-dark.png">
+    <img src="apps/files/readme/screens-light.png" alt="Files screens">
+  </picture>
+</p>
+
+<br>
+
 <p align="center"><b>Wallpapers</b></p>
 
 <p align="center">Liquid-chrome diffraction, contour and nacre wallpapers for light and dark mode in the icon sheen style, made by <code>scripts/wallpaper.py</code>.</p>
