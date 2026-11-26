@@ -6,6 +6,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ApplicationInfo
 import android.content.pm.LauncherActivityInfo
 import android.content.pm.LauncherApps
 import android.content.pm.LauncherApps.ShortcutQuery
@@ -155,14 +156,7 @@ object Apps {
     fun reload(then: (List<App>) -> Unit = {}) {
         loading?.cancel()
         loading = scope.launch {
-            val users = launcherApps.profiles
-            val collator = Collator.getInstance()
-            val found = users.flatMap { user ->
-                launcherApps.getActivityList(null, user).map {
-                    App(it.label.toString().trim(), it.componentName, user, serial(user), it)
-                }
-            }.filter { it.component.packageName != context.packageName }
-            profiles.value = users.map {
+            val found = launcherApps.profiles.map {
                 Profile(
                     user = it,
                     serial = serial(it),
@@ -170,9 +164,17 @@ object Apps {
                     quiet = userManager.isQuietModeEnabled(it),
                 )
             }
-            apps.value = found.sortedWith(compareBy(collator) { it.label })
+            val visible = found.filterNot { it.hidesApps }.flatMap { profile ->
+                launcherApps.getActivityList(null, profile.user).map {
+                    val label = it.label.toString().trim()
+                    App(label, it.componentName, profile.user, profile.serial, it)
+                }
+            }.filter { it.component.packageName != context.packageName }
+            profiles.value = found
+            apps.value =
+                visible.sortedWith(compareBy(Collator.getInstance()) { it.label })
             revision.value++
-            then(found)
+            then(visible)
         }
     }
 
@@ -194,15 +196,19 @@ object Apps {
             render(custom ?: app.info.getIcon(density()), app.user, themed, dark)
         }
 
-    fun icon(shortcut: ShortcutInfo, themed: Boolean, dark: Boolean) =
-        cached("${shortcut.`package`}/${shortcut.id}#${shortcut.userHandle}|$themed|$dark") {
+    fun icon(shortcut: ShortcutInfo, themed: Boolean, dark: Boolean): ImageBitmap? {
+        val target = "${shortcut.`package`}/${shortcut.id}"
+        return cached("${key(target, serial(shortcut.userHandle))}|$themed|$dark") {
             val drawable = launcherApps.getShortcutIconDrawable(shortcut, density())
                 ?: return@cached null
             render(drawable, shortcut.userHandle, themed, dark)
         }
+    }
 
-    private fun cached(key: String, load: () -> ImageBitmap?): ImageBitmap? =
-        icons[key] ?: runCatching(load).getOrNull()?.also { icons[key] = it }
+    private fun cached(name: String, load: () -> ImageBitmap?): ImageBitmap? {
+        val key = "$name|${density()}"
+        return icons[key] ?: runCatching(load).getOrNull()?.also { icons[key] = it }
+    }
 
     private fun density() = context.resources.displayMetrics.densityDpi
 
@@ -226,7 +232,9 @@ object Apps {
         return AdaptiveIconDrawable(ColorDrawable(background.toArgb()), glyph)
     }
 
-    private fun canUseShortcuts() = runCatching { launcherApps.hasShortcutHostPermission() }
+    private fun canUseShortcuts() = runCatching {
+        launcherApps.hasShortcutHostPermission()
+    }
         .getOrDefault(false)
 
     fun shortcuts(app: App): List<ShortcutInfo> {
@@ -234,7 +242,9 @@ object Apps {
         val query = ShortcutQuery()
             .setPackage(app.component.packageName)
             .setActivity(app.component)
-            .setQueryFlags(ShortcutQuery.FLAG_MATCH_DYNAMIC or ShortcutQuery.FLAG_MATCH_MANIFEST)
+            .setQueryFlags(
+                ShortcutQuery.FLAG_MATCH_DYNAMIC or ShortcutQuery.FLAG_MATCH_MANIFEST,
+            )
         return runCatching { launcherApps.getShortcuts(query, app.user).orEmpty() }
             .getOrDefault(emptyList())
             .filter { it.isEnabled }
@@ -278,7 +288,12 @@ object Apps {
     fun launch(view: View, bounds: Rect, app: App) {
         if (unpause(app.user)) return
         runCatching {
-            launcherApps.startMainActivity(app.component, app.user, bounds, options(view, bounds))
+            launcherApps.startMainActivity(
+                app.component,
+                app.user,
+                bounds,
+                options(view, bounds),
+            )
         }.onFailure { toast("Can't open ${app.label}") }
     }
 
@@ -301,15 +316,16 @@ object Apps {
         reload()
     }
 
-    fun showInfo(view: View, bounds: Rect, app: App) = runCatching {
+    fun showInfo(bounds: Rect, app: App) = runCatching {
         launcherApps.startAppDetailsActivity(app.component, app.user, bounds, null)
     }
 
     fun isSystem(app: App) =
-        app.info.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM != 0
+        app.info.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0
 
     fun uninstall(app: App) {
-        val intent = Intent(Intent.ACTION_DELETE, Uri.fromParts("package", app.component.packageName, null))
+        val uri = Uri.fromParts("package", app.component.packageName, null)
+        val intent = Intent(Intent.ACTION_DELETE, uri)
             .putExtra(Intent.EXTRA_USER, app.user)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         runCatching { context.startActivity(intent) }

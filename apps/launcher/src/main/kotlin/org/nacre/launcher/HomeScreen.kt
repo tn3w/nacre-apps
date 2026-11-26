@@ -84,7 +84,12 @@ import org.nacre.core.Palette
 private const val MINUTE = 60_000L
 
 @Composable
-fun Home(state: LauncherState, pager: PagerState, darkText: Boolean, motion: DrawerMotion) {
+fun Home(
+    state: LauncherState,
+    pager: PagerState,
+    darkText: Boolean,
+    motion: DrawerMotion,
+) {
     val items by Store.items.collectAsState()
     val columns by Store.columns.collectAsState()
     val context = LocalContext.current
@@ -149,7 +154,9 @@ fun Home(state: LauncherState, pager: PagerState, darkText: Boolean, motion: Dra
                     items.find { it.page == DOCK && it.cell == cell }?.let {
                         key(it.id) { HomeTile(it, state, null) }
                     }
-                    if (dragging != null && hovers(state.dock, dragging.position, columns, 1) == cell) {
+                    if (dragging != null &&
+                        hovers(state.dock, dragging.position, columns, 1) == cell
+                    ) {
                         Highlight()
                     }
                 }
@@ -171,7 +178,13 @@ private fun hovers(area: Rect, position: Offset, columns: Int, rows: Int): Int? 
 }
 
 @Composable
-private fun Page(items: List<Item>, page: Int, columns: Int, state: LauncherState, color: Color) {
+private fun Page(
+    items: List<Item>,
+    page: Int,
+    columns: Int,
+    state: LauncherState,
+    color: Color,
+) {
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
@@ -192,7 +205,10 @@ private fun Page(items: List<Item>, page: Int, columns: Int, state: LauncherStat
                     state,
                     color,
                     Modifier
-                        .offset(width * (item.cell % columns), height * (item.cell / columns))
+                        .offset(
+                            width * (item.cell % columns),
+                            height * (item.cell / columns),
+                        )
                         .size(width, height),
                 )
             }
@@ -221,7 +237,12 @@ private fun Highlight() {
 }
 
 @Composable
-fun HomeTile(item: Item, state: LauncherState, labelColor: Color?, modifier: Modifier = Modifier) {
+fun HomeTile(
+    item: Item,
+    state: LauncherState,
+    labelColor: Color?,
+    modifier: Modifier = Modifier,
+) {
     val launch = rememberLaunch()
     val slop = LocalViewConfiguration.current.touchSlop * 2
     val hidden = state.drag?.let { it.moved && it.item.id == item.id } == true
@@ -231,7 +252,10 @@ fun HomeTile(item: Item, state: LauncherState, labelColor: Color?, modifier: Mod
         modifier.alpha(if (hidden) 0f else 1f),
         state.tone,
         open = { visual, bounds ->
-            if (item.kind == Kind.Folder) state.folder = item.id else launch(visual, bounds)
+            when (item.kind) {
+                Kind.Folder -> state.folder = item.id
+                else -> launch(visual, bounds)
+            }
         },
         hold = { visual, bounds ->
             state.menu = Menu(bounds, item, visual.app)
@@ -252,7 +276,12 @@ private fun Dots(pager: PagerState, color: Color) {
         if (pager.pageCount < 2) return@Row
         repeat(pager.pageCount) {
             val alpha = if (it == pager.currentPage) 1f else 0.4f
-            Box(Modifier.size(6.dp).clip(CircleShape).background(color.copy(alpha = alpha)))
+            Box(
+                Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(color.copy(alpha = alpha)),
+            )
         }
     }
 }
@@ -298,7 +327,8 @@ private fun Glance(color: Color) {
         }
     }
     val alarm = rememberNextAlarm()
-    val shadow = if (color == Palette.Paper) Shadow(Color.Black.copy(alpha = 0.5f), blurRadius = 8f) else null
+    val shadow = Shadow(Color.Black.copy(alpha = 0.5f), blurRadius = 8f)
+        .takeIf { color == Palette.Paper }
     val style = TextStyle(color = color, shadow = shadow)
     Column(
         Modifier.fillMaxSize().padding(horizontal = 28.dp),
@@ -310,7 +340,10 @@ private fun Glance(color: Color) {
             DateUtils.formatDateTime(context, now, flags),
             Modifier.clickable {
                 context.openSafely(
-                    Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR),
+                    Intent.makeMainSelectorActivity(
+                        Intent.ACTION_MAIN,
+                        Intent.CATEGORY_APP_CALENDAR,
+                    ),
                 )
             },
             style = MaterialTheme.typography.headlineSmall.merge(style),
@@ -327,7 +360,12 @@ private fun Glance(color: Color) {
                 Arrangement.spacedBy(6.dp),
                 Alignment.CenterVertically,
             ) {
-                Icon(painterResource(R.drawable.ic_alarm), null, Modifier.size(16.dp), tint = color)
+                Icon(
+                    painterResource(R.drawable.ic_alarm),
+                    null,
+                    Modifier.size(16.dp),
+                    tint = color,
+                )
                 Text(time, style = MaterialTheme.typography.bodyMedium.merge(style))
             }
         }
@@ -364,7 +402,8 @@ fun rememberDarkText(): Boolean {
     val context = LocalContext.current
     val manager = remember { WallpaperManager.getInstance(context) }
     fun read(): Boolean {
-        val hints = manager.getWallpaperColors(WallpaperManager.FLAG_SYSTEM)?.colorHints ?: 0
+        val hints =
+            manager.getWallpaperColors(WallpaperManager.FLAG_SYSTEM)?.colorHints ?: 0
         return hints and WallpaperColors.HINT_SUPPORTS_DARK_TEXT != 0
     }
     var dark by remember { mutableStateOf(read()) }
@@ -426,35 +465,67 @@ fun ItemMenu(menu: Menu, state: LauncherState) {
         }
     }
     val rect = menu.bounds.toAndroidRectF()
-    val area = android.graphics.Rect(rect.left.toInt(), rect.top.toInt(), rect.right.toInt(), rect.bottom.toInt())
+    val area = android.graphics.Rect(
+        rect.left.toInt(),
+        rect.top.toInt(),
+        rect.right.toInt(),
+        rect.bottom.toInt(),
+    )
     val actions = buildList {
         if (item == null) {
-            add(MenuEntry("Wallpaper", R.drawable.ic_image) {
-                context.openSafely(Intent(Intent.ACTION_SET_WALLPAPER))
-            })
-            add(MenuEntry("Home settings", R.drawable.ic_settings) { state.settings = true })
+            add(
+                MenuEntry("Wallpaper", R.drawable.ic_image) {
+                    context.openSafely(Intent(Intent.ACTION_SET_WALLPAPER))
+                },
+            )
+            add(
+                MenuEntry("Home settings", R.drawable.ic_settings) {
+                    state.settings = true
+                },
+            )
             return@buildList
         }
-        app?.let { add(MenuEntry("App info", R.drawable.ic_info) { Apps.showInfo(view, area, it) }) }
+        app?.let {
+            add(MenuEntry("App info", R.drawable.ic_info) { Apps.showInfo(area, it) })
+        }
         when {
             menu.folder != null -> {
-                add(MenuEntry("Move to home screen", R.drawable.ic_add) {
-                    Store.removeFromFolder(menu.folder, item.id, toHome = true)
-                })
-                add(MenuEntry("Remove", R.drawable.ic_close) {
-                    Store.removeFromFolder(menu.folder, item.id, toHome = false)
-                })
+                add(
+                    MenuEntry("Move to home screen", R.drawable.ic_add) {
+                        Store.removeFromFolder(menu.folder, item.id, toHome = true)
+                    },
+                )
+                add(
+                    MenuEntry("Remove", R.drawable.ic_close) {
+                        Store.removeFromFolder(menu.folder, item.id, toHome = false)
+                    },
+                )
             }
 
             menu.fromDrawer && app != null -> {
-                if (!Store.has(app)) add(MenuEntry("Add to home screen", R.drawable.ic_add) { Store.add(item) })
+                if (!Store.has(app)) {
+                    add(
+                        MenuEntry("Add to home screen", R.drawable.ic_add) {
+                            Store.add(item)
+                        },
+                    )
+                }
                 val isHidden = app.key in hidden
-                add(MenuEntry(if (isHidden) "Show in app list" else "Hide from app list", R.drawable.ic_hide) {
-                    Store.setHidden(app, !isHidden)
-                })
+                add(
+                    MenuEntry(
+                        if (isHidden) "Show in app list" else "Hide from app list",
+                        R.drawable.ic_hide,
+                    ) {
+                        Store.setHidden(app, !isHidden)
+                    },
+                )
             }
 
-            else -> add(MenuEntry("Remove", R.drawable.ic_close) { Store.remove(item.id) })
+            else -> add(
+                MenuEntry("Remove", R.drawable.ic_close) {
+                    Store.remove(item.id)
+                },
+            )
         }
         app?.takeIf { !Apps.isSystem(it) }?.let {
             add(MenuEntry("Uninstall", R.drawable.ic_delete) { Apps.uninstall(it) })
@@ -509,7 +580,8 @@ fun FolderView(folder: Item, state: LauncherState) {
                             tone,
                             open = launch,
                             hold = { visual, bounds ->
-                                state.menu = Menu(bounds, child, visual.app, folder = folder.id)
+                                state.menu =
+                                    Menu(bounds, child, visual.app, folder = folder.id)
                             },
                         )
                     }

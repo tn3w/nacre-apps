@@ -63,14 +63,20 @@ data class Item(
                 serial = json.getLong("serial"),
                 shortcut = json.optString("shortcut"),
                 name = json.optString("name").take(40),
-                children = List(children.length()) { fromJson(children.getJSONObject(it)) }
+                children = List(children.length()) {
+                    fromJson(children.getJSONObject(it))
+                }
                     .filter { it.kind != Kind.Folder }
                     .take(MAX_FOLDER),
             )
         }
 
-        fun of(app: App, id: Long) =
-            Item(id, Kind.App, target = app.component.flattenToString(), serial = app.serial)
+        fun of(app: App, id: Long) = Item(
+            id,
+            Kind.App,
+            target = app.component.flattenToString(),
+            serial = app.serial,
+        )
     }
 }
 
@@ -111,8 +117,14 @@ object Store {
     private fun seedDock() {
         val intents = listOf(
             Intent(Intent.ACTION_DIAL),
-            Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_MESSAGING),
-            Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_BROWSER),
+            Intent.makeMainSelectorActivity(
+                Intent.ACTION_MAIN,
+                Intent.CATEGORY_APP_MESSAGING,
+            ),
+            Intent.makeMainSelectorActivity(
+                Intent.ACTION_MAIN,
+                Intent.CATEGORY_APP_BROWSER,
+            ),
             Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA),
         )
         val packages = intents.mapNotNull {
@@ -124,7 +136,11 @@ object Store {
             val dock = packages.distinct().mapNotNull { name ->
                 apps.find { it.component.packageName == name && it.serial == main }
             }
-            save(dock.mapIndexed { index, app -> Item.of(app, nextId() + index).copy(page = DOCK, cell = index) })
+            save(
+                dock.mapIndexed { index, app ->
+                    Item.of(app, nextId() + index).copy(page = DOCK, cell = index)
+                },
+            )
         }
     }
 
@@ -154,7 +170,8 @@ object Store {
         preferences.edit { putStringSet("hidden", hidden.value) }
     }
 
-    fun nextId() = (items.value.flatMap { listOf(it) + it.children }.maxOfOrNull { it.id } ?: 0) + 1
+    fun nextId() =
+        (items.value.flatMap { listOf(it) + it.children }.maxOfOrNull { it.id } ?: 0) + 1
 
     fun folder(id: Long) = items.value.find { it.id == id && it.kind == Kind.Folder }
 
@@ -164,30 +181,31 @@ object Store {
 
     fun drop(item: Item, page: Int, cell: Int) {
         val existing = items.value.find { it.id == item.id }
-        val others = items.value.filter { it.id != item.id }
+        val others = items.value - setOfNotNull(existing)
         val occupant = others.find { it.page == page && it.cell == cell }
         val moved = item.copy(page = page, cell = cell)
-        save(
-            when {
-                occupant == null -> others + moved
-                item.kind == Kind.Folder || occupant.kind == Kind.Folder && occupant.children.size >= MAX_FOLDER -> {
-                    if (existing == null) return
-                    others.map {
-                        if (it.id == occupant.id) it.copy(page = existing.page, cell = existing.cell) else it
-                    } + moved
-                }
-                occupant.kind == Kind.Folder -> others.map {
-                    if (it.id == occupant.id) it.copy(children = it.children + item) else it
-                }
-                else -> others.filter { it.id != occupant.id } + Item(
-                    id = nextId(),
-                    kind = Kind.Folder,
-                    page = page,
-                    cell = cell,
-                    children = listOf(occupant, item),
-                )
-            },
+        if (occupant == null) return save(others + moved)
+
+        val isFolder = occupant.kind == Kind.Folder
+        val fits = !isFolder || occupant.children.size < MAX_FOLDER
+        if (item.kind == Kind.Folder || !fits) {
+            if (existing == null) return
+            val swapped = occupant.copy(page = existing.page, cell = existing.cell)
+            return save(others - occupant + swapped + moved)
+        }
+        if (isFolder) {
+            val joined = occupant.copy(children = occupant.children + item)
+            return save(others - occupant + joined)
+        }
+
+        val folder = Item(
+            id = maxOf(nextId(), item.id + 1),
+            kind = Kind.Folder,
+            page = page,
+            cell = cell,
+            children = listOf(occupant, item),
         )
+        save(others - occupant + folder)
     }
 
     fun add(item: Item) {
@@ -218,36 +236,54 @@ object Store {
     fun removeFromFolder(folderId: Long, childId: Long, toHome: Boolean) {
         val folder = folder(folderId) ?: return
         val child = folder.children.find { it.id == childId } ?: return
-        save(items.value.map { if (it.id == folderId) it.copy(children = it.children - child) else it })
+        update(folderId) { it.copy(children = it.children - child) }
         if (toHome) add(child.copy(id = nextId())) else unpin(child)
     }
 
     fun rename(folderId: Long, name: String) {
-        save(items.value.map { if (it.id == folderId) it.copy(name = name.take(40)) else it })
+        update(folderId) { it.copy(name = name.take(40)) }
+    }
+
+    private fun update(id: Long, change: (Item) -> Item) {
+        save(items.value.map { if (it.id == id) change(it) else it })
     }
 
     fun removePackage(packageName: String, serial: Long) {
         save(
             items.value
                 .filterNot { it.matches(packageName, serial) }
-                .map { item -> item.copy(children = item.children.filterNot { it.matches(packageName, serial) }) },
+                .map { item ->
+                    item.copy(
+                        children = item.children.filterNot {
+                            it.matches(packageName, serial)
+                        },
+                    )
+                },
         )
     }
 
     fun keepShortcuts(packageName: String, serial: Long, pinned: Set<String>) {
         fun gone(item: Item) =
-            item.kind == Kind.Shortcut && item.matches(packageName, serial) && item.shortcut !in pinned
-        save(items.value.filterNot(::gone).map { it.copy(children = it.children.filterNot(::gone)) })
+            item.kind == Kind.Shortcut && item.matches(packageName, serial) &&
+                item.shortcut !in pinned
+        save(
+            items.value.filterNot(::gone).map {
+                it.copy(children = it.children.filterNot(::gone))
+            },
+        )
     }
 
     private fun unpin(item: Item) {
-        if (item.kind == Kind.Shortcut) Apps.unpin(item.target, item.shortcut, item.serial)
+        if (item.kind != Kind.Shortcut) return
+        Apps.unpin(item.target, item.shortcut, item.serial)
     }
 
     private fun save(list: List<Item>) {
         val arranged = arrange(list.mapNotNull(::settleFolder))
         items.value = arranged
-        preferences.edit { putString("items", JSONArray(arranged.map(Item::toJson)).toString()) }
+        preferences.edit {
+            putString("items", JSONArray(arranged.map(Item::toJson)).toString())
+        }
     }
 
     private fun settleFolder(item: Item): Item? {
@@ -267,7 +303,9 @@ object Store {
         for (item in list.sortedWith(compareBy({ it.page }, { it.cell }))) {
             val limit = if (item.page == DOCK) columns.value else cells
             val slot = item.page to item.cell
-            if (item.cell in 0 until limit && item.page in DOCK until MAX_PAGES && taken.add(slot)) {
+            if (item.cell in 0 until limit && item.page in DOCK until MAX_PAGES &&
+                taken.add(slot)
+            ) {
                 placed += item
             } else {
                 overflow += item

@@ -11,10 +11,10 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
@@ -51,6 +51,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 
@@ -94,7 +95,11 @@ fun Drawer(state: LauncherState, motion: DrawerMotion, modifier: Modifier) {
             available: Offset,
             source: NestedScrollSource,
         ): Offset {
-            if (available.y <= 0f || source != NestedScrollSource.UserInput) return Offset.Zero
+            if (available.y <= 0f ||
+                source != NestedScrollSource.UserInput
+            ) {
+                return Offset.Zero
+            }
             motion.drag(available.y)
             return Offset(0f, available.y)
         }
@@ -106,9 +111,7 @@ fun Drawer(state: LauncherState, motion: DrawerMotion, modifier: Modifier) {
         }
     }
 
-    Surface(
-        modifier.fillMaxSize(),
-    ) {
+    Surface(modifier.fillMaxSize()) {
         Column(Modifier.statusBarsPadding()) {
             TextField(
                 value = state.query,
@@ -160,9 +163,14 @@ fun Drawer(state: LauncherState, motion: DrawerMotion, modifier: Modifier) {
                     return@LazyVerticalGrid
                 }
                 profiles.sortedBy { !it.main }.forEach { profile ->
-                    if (!profile.main) wide("profile${profile.serial}") { ProfileHeader(profile) }
-                    if (profile.hidesApps) return@forEach
-                    apps(apps.filter { it.serial == profile.serial && it.key !in hidden }, state)
+                    if (!profile.main) {
+                        wide("profile${profile.serial}") { ProfileHeader(profile) }
+                    }
+                    val shown = apps.filter {
+                        it.serial == profile.serial &&
+                            it.key !in hidden
+                    }
+                    apps(shown, state)
                 }
             }
         }
@@ -172,7 +180,7 @@ fun Drawer(state: LauncherState, motion: DrawerMotion, modifier: Modifier) {
 private fun search(apps: List<App>, query: String): List<App> {
     val words = { app: App -> app.searchable.split(' ', '-', '.') }
     return apps
-        .filter { Apps.profile(it.serial)?.hidesApps != true && query in it.searchable }
+        .filter { query in it.searchable }
         .sortedBy { app -> words(app).none { it.startsWith(query) } }
 }
 
@@ -210,8 +218,14 @@ private fun ProfileHeader(profile: Profile) {
         Modifier.fillMaxWidth().padding(24.dp, 24.dp, 24.dp, 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(profile.label, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-        Switch(checked = !profile.quiet, onCheckedChange = { Apps.setActive(profile.user, it) })
+        Text(
+            profile.label,
+            Modifier.weight(1f),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Switch(checked = !profile.quiet, onCheckedChange = {
+            Apps.setActive(profile.user, it)
+        })
     }
 }
 
@@ -221,6 +235,6 @@ fun Note(text: String) {
         text,
         Modifier.fillMaxWidth().padding(32.dp),
         color = MaterialTheme.colorScheme.outline,
-        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        textAlign = TextAlign.Center,
     )
 }

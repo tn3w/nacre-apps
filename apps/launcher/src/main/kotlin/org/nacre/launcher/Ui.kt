@@ -74,12 +74,16 @@ val IconSize = 56.dp
 enum class Tone { Black, White }
 
 private val GLYPHS = mapOf(
-    "org.nacre.calculator" to (R.drawable.glyph_black_calculator to R.drawable.glyph_white_calculator),
+    "org.nacre.calculator" to
+        (R.drawable.glyph_black_calculator to R.drawable.glyph_white_calculator),
     "org.nacre.clock" to (R.drawable.glyph_black_clock to R.drawable.glyph_white_clock),
-    "org.nacre.contacts" to (R.drawable.glyph_black_contacts to R.drawable.glyph_white_contacts),
-    "org.nacre.messages" to (R.drawable.glyph_black_messages to R.drawable.glyph_white_messages),
+    "org.nacre.contacts" to
+        (R.drawable.glyph_black_contacts to R.drawable.glyph_white_contacts),
+    "org.nacre.messages" to
+        (R.drawable.glyph_black_messages to R.drawable.glyph_white_messages),
     "org.nacre.phone" to (R.drawable.glyph_black_phone to R.drawable.glyph_white_phone),
-    "com.android.settings" to (R.drawable.glyph_black_settings to R.drawable.glyph_white_settings),
+    "com.android.settings" to
+        (R.drawable.glyph_black_settings to R.drawable.glyph_white_settings),
 )
 
 private fun glyph(item: Item, tone: Tone?): Int? {
@@ -125,7 +129,9 @@ private fun visual(item: Item, themed: Boolean, dark: Boolean): Visual? {
 @Composable
 fun ItemIcon(item: Item, visual: Visual?, size: Dp = IconSize, tone: Tone? = null) {
     if (item.kind == Kind.Folder) return FolderIcon(item, size, tone)
-    glyph(item, tone)?.let { return Image(painterResource(it), null, Modifier.size(size)) }
+    glyph(item, tone)?.let {
+        return Image(painterResource(it), null, Modifier.size(size))
+    }
     val icon = visual?.icon ?: return Box(Modifier.size(size))
     Image(icon, null, Modifier.size(size).alpha(if (visual.dimmed) 0.5f else 1f))
 }
@@ -178,8 +184,14 @@ fun Tile(
                 release = release,
             ).semantics {
                 contentDescription = label
-                onClick { visual?.let { open(it, bounds) }; true }
-                onLongClick { visual?.let { hold(it, bounds) }; true }
+                onClick {
+                    visual?.let { open(it, bounds) }
+                    true
+                }
+                onLongClick {
+                    visual?.let { hold(it, bounds) }
+                    true
+                }
             },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -191,7 +203,8 @@ fun Tile(
 
 @Composable
 fun Label(text: String, color: Color) {
-    val shadow = if (color.red > 0.5f) Shadow(Color.Black.copy(alpha = 0.6f), blurRadius = 6f) else null
+    val shadow = Shadow(Color.Black.copy(alpha = 0.6f), blurRadius = 6f)
+        .takeIf { color.red > 0.5f }
     Text(
         text,
         Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
@@ -271,7 +284,12 @@ fun MenuPopup(
 ) {
     val rect = bounds.toAndroidRectF()
     val anchor = Anchor(
-        IntRect(rect.left.toInt(), rect.top.toInt(), rect.right.toInt(), rect.bottom.toInt()),
+        IntRect(
+            rect.left.toInt(),
+            rect.top.toInt(),
+            rect.right.toInt(),
+            rect.bottom.toInt(),
+        ),
         with(androidx.compose.ui.platform.LocalDensity.current) { 8.dp.roundToPx() },
     )
     Popup(anchor, dismiss, PopupProperties(focusable = true)) {
@@ -284,7 +302,9 @@ fun MenuPopup(
             Column(Modifier.padding(vertical = 8.dp)) {
                 shortcuts.forEach { MenuRow(it, dismiss) }
                 if (shortcuts.isNotEmpty() && actions.isNotEmpty()) {
-                    HorizontalDivider(Modifier.padding(vertical = 6.dp, horizontal = 16.dp))
+                    HorizontalDivider(
+                        Modifier.padding(vertical = 6.dp, horizontal = 16.dp),
+                    )
                 }
                 actions.forEach { MenuRow(it, dismiss) }
             }

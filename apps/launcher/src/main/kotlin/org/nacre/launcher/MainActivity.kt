@@ -2,8 +2,8 @@ package org.nacre.launcher
 
 import android.content.Intent
 import android.content.pm.LauncherApps
-import android.os.Bundle
 import android.graphics.Color
+import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.addCallback
@@ -132,14 +132,18 @@ class LauncherState : ViewModel() {
         val columns = Store.columns.value
         when {
             removal.contains(position) && !drag.fromDrawer -> Store.remove(drag.item.id)
+
             dock.contains(position) -> {
                 val cell = ((position.x - dock.left) / dock.width * columns).toInt()
                 Store.drop(drag.item, DOCK, cell.coerceIn(0, columns - 1))
             }
+
             grid.contains(position) -> {
                 val column = ((position.x - grid.left) / grid.width * columns).toInt()
                 val row = ((position.y - grid.top) / grid.height * Store.rows).toInt()
-                val cell = row.coerceIn(0, Store.rows - 1) * columns + column.coerceIn(0, columns - 1)
+                val cell =
+                    row.coerceIn(0, Store.rows - 1) * columns +
+                        column.coerceIn(0, columns - 1)
                 Store.drop(drag.item, page, cell)
             }
         }
@@ -174,7 +178,11 @@ class MainActivity : ComponentActivity() {
     private fun open(intent: Intent) {
         when (intent.getStringExtra("tab")) {
             "Apps" -> state.progress = 1f
-            "Folder" -> state.folder = Store.items.value.firstOrNull { it.kind == Kind.Folder }?.id
+
+            "Folder" ->
+                state.folder =
+                    Store.items.value.firstOrNull { it.kind == Kind.Folder }?.id
+
             "Settings" -> state.settings = true
         }
     }
@@ -193,10 +201,15 @@ fun Launcher(state: LauncherState) {
 
     LaunchedEffect(state.target) {
         val goal = state.target ?: return@LaunchedEffect
-        animate(state.progress, if (goal) 1f else 0f) { value, _ -> state.progress = value }
+        animate(state.progress, if (goal) 1f else 0f) { value, _ ->
+            state.progress = value
+        }
         state.target = null
     }
-    LaunchedEffect(state.firstPage) { if (state.firstPage > 0) pager.animateScrollToPage(0) }
+    LaunchedEffect(state.firstPage) {
+        if (state.firstPage == 0) return@LaunchedEffect
+        pager.animateScrollToPage(0)
+    }
     LaunchedEffect(pager.currentPage) { state.page = pager.currentPage }
 
     val activity = androidx.activity.compose.LocalActivity.current
@@ -213,7 +226,10 @@ fun Launcher(state: LauncherState) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val height = constraints.maxHeight.toFloat()
         val motion = DrawerMotion(
-            drag = { delta -> state.progress = (state.progress - delta / height).coerceIn(0f, 1f) },
+            drag = { delta ->
+                state.progress =
+                    (state.progress - delta / height).coerceIn(0f, 1f)
+            },
             settle = { velocity ->
                 state.target = when {
                     velocity < -800f -> true
@@ -223,8 +239,14 @@ fun Launcher(state: LauncherState) {
             },
         )
         Home(state, pager, darkText, motion)
-        Drawer(state, motion, Modifier.offset { IntOffset(0, ((1 - state.progress) * height).roundToInt()) })
-        state.folder?.let { id -> Store.folder(id)?.let { FolderView(it, state) } ?: run { state.folder = null } }
+        val drawerOffset = Modifier.offset {
+            IntOffset(0, (height * (1 - state.progress)).roundToInt())
+        }
+        Drawer(state, motion, drawerOffset)
+        state.folder?.let { id ->
+            Store.folder(id)?.let { FolderView(it, state) }
+                ?: run { state.folder = null }
+        }
         state.menu?.let { ItemMenu(it, state) }
         state.drag?.takeIf { it.moved }?.let { DragShadow(it, state) }
         if (state.settings) SettingsScreen { state.settings = false }
@@ -238,7 +260,12 @@ private fun DragShadow(drag: Drag, state: LauncherState) {
     val half = with(LocalDensity.current) { (IconSize / 2).roundToPx() }
     Box(
         Modifier
-            .offset { IntOffset(drag.position.x.roundToInt() - half, drag.position.y.roundToInt() - half) }
+            .offset {
+                IntOffset(
+                    drag.position.x.roundToInt() - half,
+                    drag.position.y.roundToInt() - half,
+                )
+            }
             .scale(1.1f),
     ) {
         ItemIcon(drag.item, rememberVisual(drag.item), tone = state.tone)
@@ -257,7 +284,10 @@ class PinActivity : ComponentActivity() {
             return finish()
         }
         val icon = runCatching {
-            launcherApps.getShortcutIconDrawable(shortcut, resources.displayMetrics.densityDpi)
+            launcherApps.getShortcutIconDrawable(
+                shortcut,
+                resources.displayMetrics.densityDpi,
+            )
                 ?.toBitmap()?.asImageBitmap()
         }.getOrNull()
 
@@ -267,7 +297,10 @@ class PinActivity : ComponentActivity() {
                     onDismissRequest = ::finish,
                     title = { Text("Add to home screen?") },
                     text = {
-                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             icon?.let { Image(it, null, Modifier.size(48.dp)) }
                             Text(shortcut.shortLabel?.toString().orEmpty())
                         }

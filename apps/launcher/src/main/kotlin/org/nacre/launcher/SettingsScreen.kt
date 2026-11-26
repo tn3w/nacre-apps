@@ -88,7 +88,7 @@ private fun Options(showHidden: () -> Unit) {
             }
         }
         item {
-            Option("Grid", "${columns} × ${columns + 1}") {}
+            Option("Grid", "$columns × ${columns + 1}") {}
             SingleChoiceSegmentedButtonRow(Modifier.padding(horizontal = 24.dp)) {
                 listOf(4, 5).forEachIndexed { index, count ->
                     SegmentedButton(
@@ -100,13 +100,28 @@ private fun Options(showHidden: () -> Unit) {
             }
         }
         item {
-            Toggle("Themed icons", "Show app icons in monochrome when available", themed, Store::setThemed)
+            Toggle(
+                "Themed icons",
+                "Show app icons in monochrome when available",
+                themed,
+                Store::setThemed,
+            )
         }
         item {
-            Toggle("Show keyboard", "Start typing when the app list opens", keyboard, Store::setKeyboard)
+            Toggle(
+                "Show keyboard",
+                "Start typing when the app list opens",
+                keyboard,
+                Store::setKeyboard,
+            )
         }
         item {
-            Toggle("Add new apps", "Place newly installed apps on the home screen", autoAdd, Store::setAutoAdd)
+            Toggle(
+                "Add new apps",
+                "Place newly installed apps on the home screen",
+                autoAdd,
+                Store::setAutoAdd,
+            )
         }
         item {
             val count = if (hidden.isEmpty()) "None" else "${hidden.size} hidden"
@@ -123,7 +138,12 @@ private fun HiddenApps() {
     val dark = isSystemInDarkTheme()
     LazyColumn {
         items(apps, key = { it.key }) { app ->
-            val icon by produceState(null as androidx.compose.ui.graphics.ImageBitmap?, app, themed, dark) {
+            val icon by produceState(
+                null as androidx.compose.ui.graphics.ImageBitmap?,
+                app,
+                themed,
+                dark,
+            ) {
                 value = withContext(Dispatchers.IO) { Apps.icon(app, themed, dark) }
             }
             val profile = Apps.profile(app.serial)?.takeIf { !it.main }?.label
@@ -135,7 +155,9 @@ private fun HiddenApps() {
                     Checkbox(app.key in hidden, { Store.setHidden(app, it) })
                 },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                modifier = Modifier.clickable { Store.setHidden(app, app.key !in hidden) },
+                modifier = Modifier.clickable {
+                    Store.setHidden(app, app.key !in hidden)
+                },
             )
         }
     }
@@ -152,7 +174,12 @@ private fun Option(title: String, detail: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Toggle(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun Toggle(
+    title: String,
+    detail: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
     ListItem(
         headlineContent = { Text(title) },
         supportingContent = { Text(detail) },
