@@ -31,7 +31,7 @@ const val MESSAGES_CHANNEL = "messages"
 private const val NOTIFIED_MESSAGES = 8
 private const val NOTIFIED_CHARS = 500
 private const val REPLY_KEY = "reply"
-private val CODE = Regex("""(?<![\d.,])(\d{4,8})(?![\d.,])""")
+private val CODE = Regex("""(?<!\d[.,]?)(\d{4,8})(?![.,]?\d)""")
 private val CODE_WORDS =
     Regex("(?i)code|otp|pin|passcode|password|verif|token|login|einmal|código|codice")
 
