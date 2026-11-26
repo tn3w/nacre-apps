@@ -331,6 +331,12 @@ object Store {
         if (toHome) add(child.copy(id = nextId())) else unpin(child)
     }
 
+    fun resize(id: Long, width: Int, height: Int) {
+        val item = items.value.find { it.id == id } ?: return
+        val resized = item.copy(width = width, height = height)
+        if (fits(resized, items.value)) save(items.value - item + resized)
+    }
+
     fun rename(folderId: Long, name: String) {
         update(folderId) { it.copy(name = name.take(40)) }
     }

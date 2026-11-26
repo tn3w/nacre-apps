@@ -224,9 +224,15 @@ object Apps {
 
     fun icon(app: App, tone: Tone? = null) =
         cached("${app.key}|$tone|${Store.sheen.value}") {
-            if (!Store.sheen.value) return@cached render(app.info.getIcon(density()), app.user)
+            if (!Store.sheen.value) {
+                return@cached render(
+                    app.info.getIcon(density()),
+                    app.user,
+                )
+            }
             val sheen = sheen(app, tone ?: Tone.Black)
-            val drawable = tone?.let { BitmapDrawable(context.resources, sheen) } ?: adaptive(sheen)
+            val drawable =
+                tone?.let { BitmapDrawable(context.resources, sheen) } ?: adaptive(sheen)
             render(drawable, app.user)
         }
 

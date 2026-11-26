@@ -49,9 +49,9 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.lifecycleScope
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 import org.nacre.core.NacreTheme
 
 class Drag(val item: Item, val fromDrawer: Boolean, start: Offset) {
@@ -77,6 +77,7 @@ class LauncherState : ViewModel() {
     var folder by mutableStateOf<Long?>(null)
     var settings by mutableStateOf(false)
     var widgets by mutableStateOf(false)
+    var resizing by mutableStateOf<Long?>(null)
     var pendingWidget: Int? = null
     var firstPage by mutableIntStateOf(0)
     var page by mutableIntStateOf(0)
@@ -111,6 +112,7 @@ class LauncherState : ViewModel() {
 
     fun back() {
         when {
+            resizing != null -> resizing = null
             menu != null -> menu = null
             folder != null -> folder = null
             settings -> settings = false
@@ -125,6 +127,7 @@ class LauncherState : ViewModel() {
         folder = null
         settings = false
         widgets = false
+        resizing = null
         if (!alreadyHome) return reset()
         if (progress > 0f) closeDrawer() else firstPage++
     }
@@ -178,7 +181,9 @@ class MainActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this) { state.back() }
         open(intent)
         val dark = resources.configuration.isNightModeActive
-        lifecycleScope.launch(Dispatchers.IO) { runCatching { Store.syncWallpaper(dark) } }
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching { Store.syncWallpaper(dark) }
+        }
         setContent { NacreTheme { Launcher(state, ::addWidget) } }
     }
 

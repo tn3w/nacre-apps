@@ -40,9 +40,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toAndroidRectF
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputChange
@@ -79,7 +79,11 @@ enum class Tone(val color: Color) {
     White(Palette.Paper),
 }
 
-fun surface(ink: Color) = lerp(Color(1 - ink.red, 1 - ink.green, 1 - ink.blue), ink, 0.12f)
+fun surface(ink: Color) = lerp(
+    Color(1 - ink.red, 1 - ink.green, 1 - ink.blue),
+    ink,
+    0.12f,
+)
 
 data class Visual(
     val label: String,

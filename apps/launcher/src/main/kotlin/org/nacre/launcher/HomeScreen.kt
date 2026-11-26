@@ -2,6 +2,7 @@ package org.nacre.launcher
 
 import android.app.ActivityOptions
 import android.app.AlarmManager
+import android.appwidget.AppWidgetProviderInfo
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -10,8 +11,10 @@ import android.os.Bundle
 import android.text.format.DateUtils
 import android.util.SizeF
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -31,6 +34,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -75,8 +79,10 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -136,7 +142,7 @@ fun Home(
                             )
                     },
                 beyondViewportPageCount = pager.pageCount,
-                userScrollEnabled = state.drag == null,
+                userScrollEnabled = state.drag == null && state.resizing == null,
                 key = { it },
             ) { page ->
                 Page(items.filter { it.page == page }, page, columns, state, color)
@@ -194,7 +200,9 @@ private fun Page(
         Modifier
             .fillMaxSize()
             .pointerInput(Unit) {
-                detectTapGestures(onLongPress = { position ->
+                detectTapGestures(onTap = {
+                    state.resizing = null
+                }, onLongPress = { position ->
                     val at = state.grid.topLeft + position
                     val cell = hovers(state.grid, at, columns, Store.rows)
                     if (cell != null &&
@@ -530,6 +538,13 @@ fun ItemMenu(menu: Menu, state: LauncherState) {
                 }
 
                 else -> {
+                    if (item.isWidget) {
+                        add(
+                            MenuEntry("Resize", R.drawable.ic_widgets) {
+                                state.resizing = item.id
+                            },
+                        )
+                    }
                     add(
                         MenuEntry("Remove", R.drawable.ic_close) {
                             Store.remove(item.id)
@@ -630,13 +645,78 @@ private fun WidgetTile(
                 release = state::release,
             ),
     ) {
-        if (item.kind == Kind.Glance) return@BoxWithConstraints Glance(color)
-        if (info == null) return@BoxWithConstraints
-        val size = SizeF(maxWidth.value, maxHeight.value)
-        AndroidView(
-            factory = { Widgets.host.createView(it, item.widget, info) },
-            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp)),
-            update = { it.updateAppWidgetSize(Bundle(), listOf(size)) },
+        if (item.kind == Kind.Glance) Glance(color)
+        if (info != null) {
+            val size = SizeF(maxWidth.value, maxHeight.value)
+            AndroidView(
+                factory = { Widgets.host.createView(it, item.widget, info) },
+                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp)),
+                update = { it.updateAppWidgetSize(Bundle(), listOf(size)) },
+            )
+        }
+        if (state.resizing == item.id) {
+            val mode = info?.resizeMode ?: AppWidgetProviderInfo.RESIZE_HORIZONTAL
+            ResizeFrame(item, mode, color, maxWidth, maxHeight)
+        }
+    }
+}
+
+@Composable
+private fun ResizeFrame(item: Item, mode: Int, color: Color, width: Dp, height: Dp) {
+    var offset by remember(item.width, item.height) { mutableStateOf(Offset.Zero) }
+    val density = LocalDensity.current
+    val stretched = with(density) {
+        Modifier.size(
+            (width + offset.x.toDp()).coerceAtLeast(24.dp),
+            (height + offset.y.toDp()).coerceAtLeast(24.dp),
         )
     }
+    val finish = {
+        val cell = Widgets.cell
+        val columns = item.width + (offset.x / cell.width).roundToInt()
+        val rows = item.height + (offset.y / cell.height).roundToInt()
+        offset = Offset.Zero
+        Store.resize(item.id, columns.coerceAtLeast(1), rows.coerceAtLeast(1))
+    }
+    Box(
+        Modifier
+            .wrapContentSize(Alignment.TopStart, unbounded = true)
+            .then(stretched)
+            .border(2.dp, color, RoundedCornerShape(20.dp)),
+    ) {
+        if (mode and AppWidgetProviderInfo.RESIZE_HORIZONTAL != 0) {
+            Handle(Modifier.align(Alignment.CenterEnd).offset(x = 10.dp), color, finish) {
+                offset += Offset(it.x, 0f)
+            }
+        }
+        if (mode and AppWidgetProviderInfo.RESIZE_VERTICAL != 0) {
+            Handle(
+                Modifier.align(Alignment.BottomCenter).offset(y = 10.dp),
+                color,
+                finish,
+            ) {
+                offset += Offset(0f, it.y)
+            }
+        }
+    }
+}
+
+@Composable
+private fun Handle(
+    modifier: Modifier,
+    color: Color,
+    finish: () -> Unit,
+    drag: (Offset) -> Unit,
+) {
+    Box(
+        modifier
+            .size(20.dp)
+            .background(color, CircleShape)
+            .pointerInput(Unit) {
+                detectDragGestures(onDragEnd = finish) { change, amount ->
+                    change.consume()
+                    drag(amount)
+                }
+            },
+    )
 }

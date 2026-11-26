@@ -168,7 +168,10 @@ object Sheen {
         for (line in 0 until SIZE) {
             val origin = line * lineStep
             var sum = 0f
-            for (position in 0..minOf(after, SIZE - 1)) sum += values[origin + position * step]
+            for (position in 0..minOf(after, SIZE - 1)) {
+                sum +=
+                    values[origin + position * step]
+            }
             for (position in 0 until SIZE) {
                 result[origin + position * step] = sum / count
                 val leaving = position - before
