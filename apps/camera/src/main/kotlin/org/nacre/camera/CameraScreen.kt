@@ -84,6 +84,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.MutableLiveData
 import java.io.File
 import kotlin.math.abs
@@ -217,7 +219,9 @@ private fun Viewfinder(
     var burst by remember { mutableIntStateOf(0) }
     var holding by remember { mutableStateOf(false) }
     val panorama = remember {
-        Panorama { width -> context.mainExecutor.execute { panoramaWidth = width } }
+        Panorama { width ->
+            context.mainExecutor.execute { if (panoramaWidth >= 0) panoramaWidth = width }
+        }
     }
     val emptyZoom = remember { MutableLiveData<ZoomState>() }
     val zoom by (camera.bound?.cameraInfo?.zoomState ?: emptyZoom).observeAsState()
@@ -285,11 +289,15 @@ private fun Viewfinder(
     }
 
     fun takeDocument() {
-        val file = File(context.cacheDir, "document.jpg")
+        val file = File(context.cacheDir, "document_${stamp()}.jpg")
         camera.takePhoto(settings, file) { uri ->
             if (uri == null) return@takePhoto toast("Couldn't save")
             scope.launch {
-                saved(withContext(Dispatchers.IO) { runCatching { Document.process(context, file) }.getOrNull() })
+                val document = withContext(Dispatchers.IO) {
+                    runCatching { Document.process(context, file) }.getOrNull()
+                        .also { file.delete() }
+                }
+                saved(document)
             }
         }
     }
@@ -395,6 +403,21 @@ private fun Viewfinder(
         if (!gallery && review == null && mode != Mode.Scan) press()
     }
     LaunchedEffect(Unit) { shutter.collect { onShutter() } }
+
+    val onStop by rememberUpdatedState {
+        timerJob?.cancel()
+        timerJob = null
+        countdown = 0
+        holdEnd()
+        if (panorama.active) togglePanorama()
+    }
+    DisposableEffect(activity) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) onStop()
+        }
+        activity.lifecycle.addObserver(observer)
+        onDispose { activity.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(panoramaWidth) {
         if (panoramaWidth >= Panorama.MAX_WIDTH) togglePanorama()

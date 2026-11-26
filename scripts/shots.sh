@@ -34,9 +34,9 @@ capture() {
     adb shell cmd uimode night "$2" >/dev/null
     sleep 1
     for screen in "${screens[@]}"; do
-        adb shell am start -W -n "$package/.MainActivity" --es tab "$screen" >/dev/null
+        adb shell am start -W ${restart:+-S} -n "$package/.MainActivity" --es tab "$screen" >/dev/null
         demo clock -e hhmm "$(adb shell date +%H%M | tr -d '\r')"
-        sleep 0.8
+        sleep "${settle:-0.8}"
         adb exec-out screencap -p >"$work/$screen.png"
         magick "$work/$screen.png" -resize 360x -alpha set \
             \( +clone -alpha transparent -fill white \
