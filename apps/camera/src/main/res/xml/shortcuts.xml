@@ -1,0 +1,44 @@
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+  <shortcut
+    android:icon="@drawable/shortcut_selfie"
+    android:shortcutId="selfie"
+    android:shortcutShortLabel="@string/shortcut_selfie">
+    <intent
+      android:action="android.intent.action.VIEW"
+      android:targetClass="org.nacre.camera.MainActivity"
+      android:targetPackage="org.nacre.camera">
+    </intent>
+  </shortcut>
+  <shortcut
+    android:icon="@drawable/shortcut_video"
+    android:shortcutId="video"
+    android:shortcutShortLabel="@string/shortcut_video">
+    <intent
+      android:action="android.intent.action.VIEW"
+      android:targetClass="org.nacre.camera.MainActivity"
+      android:targetPackage="org.nacre.camera">
+      <extra android:name="tab" android:value="Video" />
+    </intent>
+  </shortcut>
+  <shortcut
+    android:icon="@drawable/shortcut_scan"
+    android:shortcutId="scan"
+    android:shortcutShortLabel="@string/shortcut_scan">
+    <intent
+      android:action="android.intent.action.VIEW"
+      android:targetClass="org.nacre.camera.MainActivity"
+      android:targetPackage="org.nacre.camera">
+      <extra android:name="tab" android:value="Scan" />
+    </intent>
+  </shortcut>
+  <shortcut
+    android:icon="@drawable/shortcut_torch"
+    android:shortcutId="torch"
+    android:shortcutShortLabel="@string/shortcut_torch">
+    <intent
+      android:action="android.intent.action.VIEW"
+      android:targetClass="org.nacre.camera.TorchActivity"
+      android:targetPackage="org.nacre.camera">
+    </intent>
+  </shortcut>
+</shortcuts>

@@ -1,0 +1,57 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <uses-feature android:name="android.hardware.camera.any" />
+  <uses-permission android:name="android.permission.CAMERA" />
+  <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+  <application
+    android:allowBackup="false"
+    android:dataExtractionRules="@xml/data_extraction_rules"
+    android:icon="@mipmap/ic_launcher"
+    android:label="Camera"
+    android:theme="@style/Theme.Camera">
+
+    <activity
+      android:name=".MainActivity"
+      android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+      android:exported="true"
+      android:screenOrientation="portrait">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.LAUNCHER" />
+      </intent-filter>
+      <intent-filter>
+        <action android:name="android.media.action.STILL_IMAGE_CAMERA" />
+        <action android:name="android.media.action.VIDEO_CAMERA" />
+        <action android:name="android.media.action.IMAGE_CAPTURE" />
+        <action android:name="android.media.action.VIDEO_CAPTURE" />
+        <category android:name="android.intent.category.DEFAULT" />
+      </intent-filter>
+      <meta-data
+        android:name="android.app.shortcuts"
+        android:resource="@xml/shortcuts" />
+    </activity>
+
+    <activity
+      android:name=".SecureActivity"
+      android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+      android:excludeFromRecents="true"
+      android:exported="true"
+      android:screenOrientation="portrait"
+      android:taskAffinity="">
+      <intent-filter>
+        <action android:name="android.media.action.STILL_IMAGE_CAMERA_SECURE" />
+        <action android:name="android.media.action.IMAGE_CAPTURE_SECURE" />
+        <category android:name="android.intent.category.DEFAULT" />
+      </intent-filter>
+    </activity>
+
+    <activity
+      android:name=".TorchActivity"
+      android:excludeFromRecents="true"
+      android:exported="true"
+      android:noHistory="true"
+      android:taskAffinity=""
+      android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+  </application>
+</manifest>
