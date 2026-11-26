@@ -233,10 +233,15 @@ class DocumentFinder(private val onCorners: (List<PointF>?) -> Unit) : ImageAnal
 }
 
 class Panorama(private val onProgress: (Int) -> Unit) : ImageAnalysis.Analyzer {
-    private val strips = mutableListOf<Bitmap>()
-    private var previous: FloatArray? = null
+    private class Strip(val bitmap: Bitmap, val top: Int)
+
+    private class Profiles(val columns: FloatArray, val rows: FloatArray)
+
+    private val strips = mutableListOf<Strip>()
+    private var previous: Profiles? = null
     private var pending = 0f
     private var direction = 0f
+    private var top = 0f
     private var width = 0
 
     @Volatile
@@ -245,20 +250,23 @@ class Panorama(private val onProgress: (Int) -> Unit) : ImageAnalysis.Analyzer {
     override fun analyze(image: ImageProxy) = image.use {
         if (!active) return@use
         val frame = it.uprightBitmap()
-        val profile = profileOf(frame)
+        val profiles = profilesOf(frame)
         val last = previous
-        previous = profile
+        previous = profiles
         if (last == null) return@use
 
-        pending += shiftOf(last, profile) * frame.width / PROFILE
+        val scale = frame.width.toFloat() / PROFILE
+        pending += shiftOf(last.columns, profiles.columns) * scale
+        top += shiftOf(last.rows, profiles.rows) * scale
         if (direction == 0f && abs(pending) > frame.width / 40) direction = sign(pending)
         val strip = (pending * direction).toInt()
         if (direction == 0f || strip < 8) return@use
-        if (strip > frame.width / 3) {
+        if (strip > frame.width / 3 || abs(top) > frame.height / 3) {
             pending = 0f
             return@use
         }
-        strips += Bitmap.createBitmap(frame, (frame.width - strip) / 2, 0, strip, frame.height)
+        val bitmap = Bitmap.createBitmap(frame, (frame.width - strip) / 2, 0, strip, frame.height)
+        strips += Strip(bitmap, top.toInt())
         pending -= strip * direction
         width += strip
         onProgress(width)
@@ -268,12 +276,15 @@ class Panorama(private val onProgress: (Int) -> Unit) : ImageAnalysis.Analyzer {
         active = false
         val parts = if (direction < 0) strips.reversed() else strips.toList()
         val result = parts.firstOrNull()?.let { first ->
-            val output = Bitmap.createBitmap(width, first.height, Bitmap.Config.ARGB_8888)
+            val highest = parts.maxOf { it.top }
+            val lowest = parts.minOf { it.top }
+            val height = first.bitmap.height - (highest - lowest)
+            val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(output)
             var x = 0f
             parts.forEach {
-                canvas.drawBitmap(it, x, 0f, null)
-                x += it.width
+                canvas.drawBitmap(it.bitmap, x, (it.top - highest).toFloat(), null)
+                x += it.bitmap.width
             }
             output
         }
@@ -281,22 +292,31 @@ class Panorama(private val onProgress: (Int) -> Unit) : ImageAnalysis.Analyzer {
         previous = null
         pending = 0f
         direction = 0f
+        top = 0f
         width = 0
         return result?.takeIf { it.width > it.height / 2 }
     }
 
-    private fun profileOf(frame: Bitmap): FloatArray {
-        val height = frame.height * PROFILE / frame.width
-        val small = Bitmap.createScaledBitmap(frame, PROFILE, height.coerceAtLeast(1), true)
-        val pixels = IntArray(PROFILE * small.height)
-        small.getPixels(pixels, 0, PROFILE, 0, 0, PROFILE, small.height)
-        val rows = small.height / 5 until small.height * 4 / 5
-        return FloatArray(PROFILE) { x -> rows.sumOf { luma(pixels[it * PROFILE + x]) }.toFloat() / rows.count() }
+    private fun profilesOf(frame: Bitmap): Profiles {
+        val height = (frame.height * PROFILE / frame.width).coerceAtLeast(1)
+        val small = Bitmap.createScaledBitmap(frame, PROFILE, height, true)
+        val pixels = IntArray(PROFILE * height)
+        small.getPixels(pixels, 0, PROFILE, 0, 0, PROFILE, height)
+        val gray = IntArray(pixels.size) { luma(pixels[it]) }
+        val rows = height / 5 until height * 4 / 5
+        val columns = PROFILE / 5 until PROFILE * 4 / 5
+        return Profiles(
+            FloatArray(PROFILE) { x -> rows.sumOf { gray[it * PROFILE + x] }.toFloat() / rows.count() },
+            FloatArray(height) { y -> columns.sumOf { gray[y * PROFILE + it] }.toFloat() / columns.count() }
+        )
     }
 
-    private fun shiftOf(first: FloatArray, second: FloatArray): Int = (-PROFILE / 4..PROFILE / 4).minBy { shift ->
-        val range = maxOf(0, -shift) until minOf(PROFILE, PROFILE - shift)
-        range.sumOf { abs(first[it + shift] - second[it]).toDouble() } / range.count()
+    private fun shiftOf(first: FloatArray, second: FloatArray): Int {
+        val size = minOf(first.size, second.size)
+        return (-size / 4..size / 4).minBy { shift ->
+            val range = maxOf(0, -shift) until minOf(size, size - shift)
+            range.sumOf { abs(first[it + shift] - second[it]).toDouble() } / range.count()
+        }
     }
 
     companion object {
