@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -49,14 +50,27 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+private const val CACHE_LIMIT = 256L * 1024 * 1024
 
 private fun descriptor(context: Context, uri: Uri, cache: File): ParcelFileDescriptor {
     val opened = context.contentResolver.openFileDescriptor(uri, "r")!!
     if (opened.statSize >= 0) return opened
     ParcelFileDescriptor.AutoCloseInputStream(opened).use { input ->
-        cache.outputStream().use { input.copyTo(it) }
+        cache.outputStream().use { output ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            var total = 0L
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                total += read
+                if (total > CACHE_LIMIT) throw IOException("PDF is too large")
+                output.write(buffer, 0, read)
+            }
+        }
     }
     return ParcelFileDescriptor.open(cache, ParcelFileDescriptor.MODE_READ_ONLY)
 }
@@ -81,9 +95,14 @@ fun PdfViewer(uri: Uri, name: String, onClose: () -> Unit) {
         }
     }
 
+    BackHandler(onBack = onClose)
+
     LaunchedEffect(uri) {
         runCatching {
-            val opened = withContext(Dispatchers.IO) { descriptor(context, uri, cache) }
+            val opened = withContext(Dispatchers.IO) {
+                cache.delete()
+                descriptor(context, uri, cache)
+            }
             opened.use { pages = document.open(it) }
         }.onFailure {
             Toast.makeText(context, "Can't open $name", Toast.LENGTH_SHORT).show()

@@ -37,7 +37,7 @@ private const val LIMIT = 2 * 1024 * 1024
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun Editor(uri: Uri, name: String, onClose: () -> Unit) {
+fun Editor(uri: Uri, name: String, writable: Boolean, onClose: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var saved by remember { mutableStateOf<String?>(null) }
@@ -76,12 +76,9 @@ fun Editor(uri: Uri, name: String, onClose: () -> Unit) {
         val result =
             withContext(Dispatchers.IO) {
                 runCatching {
-                    resolver
-                        .openOutputStream(
-                            uri,
-                            "wt"
-                        )!!
-                        .use { it.write(content.toByteArray()) }
+                    resolver.openOutputStream(uri, "wt")!!.use {
+                        it.write(content.toByteArray())
+                    }
                 }
             }
         if (result.isSuccess) saved = content
@@ -106,8 +103,10 @@ fun Editor(uri: Uri, name: String, onClose: () -> Unit) {
                     }
                 },
                 actions = {
-                    IconButton({ save() }, enabled = changed) {
-                        Icon(painterResource(R.drawable.ic_check), "Save")
+                    if (writable) {
+                        IconButton({ save() }, enabled = changed) {
+                            Icon(painterResource(R.drawable.ic_check), "Save")
+                        }
                     }
                 }
             )
@@ -117,6 +116,7 @@ fun Editor(uri: Uri, name: String, onClose: () -> Unit) {
             value = text,
             onValueChange = { text = it },
             enabled = saved != null,
+            readOnly = !writable,
             textStyle =
                 MaterialTheme.typography.bodyMedium.copy(
                     fontFamily = FontFamily.Monospace,

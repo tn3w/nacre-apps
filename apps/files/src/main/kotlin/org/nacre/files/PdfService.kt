@@ -26,6 +26,7 @@ private const val RENDER = 2
 private const val ERROR = 3
 private const val MAX_WIDTH = 2400
 private const val MAX_HEIGHT = 8192
+private const val MAX_PAGES = 5000
 
 class PdfService : Service() {
     private val thread = HandlerThread("pdf").apply { start() }
@@ -60,11 +61,12 @@ class PdfService : Service() {
         val descriptor = data.getParcelable("fd", ParcelFileDescriptor::class.java)!!
         val opened = PdfRenderer(descriptor)
         renderer = opened
+        require(opened.pageCount in 1..MAX_PAGES)
         val sizes =
             List(opened.pageCount) { index ->
                 opened.openPage(index).use {
-                    it.width to
-                        it.height
+                    it.width.coerceAtLeast(1) to
+                        it.height.coerceAtLeast(1)
                 }
             }
         return Bundle().apply {
@@ -80,10 +82,9 @@ class PdfService : Service() {
         return current.openPage(index).use { page ->
             val width = data.getInt("width").coerceIn(1, MAX_WIDTH)
             val height =
-                (width.toLong() * page.height / page.width).toInt().coerceIn(
-                    1,
-                    MAX_HEIGHT
-                )
+                (width.toLong() * page.height / page.width.coerceAtLeast(1))
+                    .coerceIn(1, MAX_HEIGHT.toLong())
+                    .toInt()
             val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             bitmap.eraseColor(Color.WHITE)
             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
@@ -110,7 +111,7 @@ class PdfDocument(private val context: Context) : ServiceConnection {
         Context.BIND_AUTO_CREATE
     )
 
-    fun close() = context.unbindService(this)
+    fun close() = runCatching { context.unbindService(this) }
 
     override fun onServiceConnected(name: ComponentName?, binder: IBinder) {
         service.complete(Messenger(binder))
@@ -119,6 +120,7 @@ class PdfDocument(private val context: Context) : ServiceConnection {
     override fun onServiceDisconnected(name: ComponentName?) {
         val error = IOException("The PDF renderer stopped")
         service.completeExceptionally(error)
+        context.unbindService(this)
         pending.values.forEach { it.completeExceptionally(error) }
         pending.clear()
     }

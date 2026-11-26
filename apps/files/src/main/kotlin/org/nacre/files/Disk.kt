@@ -77,6 +77,8 @@ private val TEXT =
         "h"
     )
 
+private const val MAX_ENTRIES = 100_000
+
 object Disk {
     val root: File = Environment.getExternalStorageDirectory()
     val trash = File(root, ".Trash")
@@ -210,19 +212,25 @@ object Disk {
         return target
     }
 
-    fun rename(file: File, name: String): File {
-        val target = File(file.parentFile, name)
-        if (name.isBlank() || '/' in name || name == "." || name == "..") {
+    private fun checkName(name: String) {
+        if (name.isBlank() || '/' in name || '\u0000' in name || name == "." ||
+            name == ".."
+        ) {
             throw IOException("Invalid name")
         }
+    }
+
+    fun rename(file: File, name: String): File {
+        checkName(name)
+        val target = File(file.parentFile, name)
         if (target.exists()) throw IOException("$name already exists")
         if (!file.renameTo(target)) throw IOException("Couldn't rename ${file.name}")
         return target
     }
 
     fun create(folder: File, name: String, directory: Boolean): File {
+        checkName(name)
         val target = File(folder, name)
-        if (name.isBlank() || '/' in name) throw IOException("Invalid name")
         if (target.exists()) throw IOException("$name already exists")
         val created = if (directory) target.mkdir() else target.createNewFile()
         if (!created) throw IOException("Couldn't create $name")
@@ -263,26 +271,43 @@ object Disk {
 
     fun extract(archive: File): File {
         val target = unique(archive.parentFile!!, archive.nameWithoutExtension)
-        val base = target.canonicalPath + File.separator
         target.mkdirs()
+        try {
+            unzip(archive, target)
+        } catch (error: Exception) {
+            target.deleteRecursively()
+            throw error
+        }
+        return target
+    }
+
+    private fun unzip(archive: File, target: File) {
+        val base = target.canonicalPath + File.separator
+        var budget = target.usableSpace - 64L * 1024 * 1024
         ZipInputStream(archive.inputStream().buffered()).use { zip ->
-            generateSequence { zip.nextEntry }.forEach { item ->
+            generateSequence { zip.nextEntry }.forEachIndexed { index, item ->
+                if (index >= MAX_ENTRIES) throw IOException("Archive has too many files")
                 val output = File(target, item.name)
-                if (!output.canonicalPath.startsWith(
-                        base
-                    )
-                ) {
+                if (!(output.canonicalPath + File.separator).startsWith(base)) {
                     throw IOException("Unsafe archive")
                 }
                 if (item.isDirectory) {
                     output.mkdirs()
-                } else {
-                    output.parentFile!!.mkdirs()
-                    output.outputStream().use { zip.copyTo(it) }
+                    return@forEachIndexed
+                }
+                output.parentFile!!.mkdirs()
+                output.outputStream().use { stream ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        val read = zip.read(buffer)
+                        if (read < 0) break
+                        budget -= read
+                        if (budget < 0) throw IOException("Not enough space to extract")
+                        stream.write(buffer, 0, read)
+                    }
                 }
             }
         }
-        return target
     }
 
     fun scan(context: Context, files: List<File>) {
@@ -325,6 +350,7 @@ object Disk {
     }
 
     fun share(context: Context, files: List<File>) {
+        if (files.isEmpty()) return
         val uris = files.map { uri(context, it) }
         val type = files.map { mime(it) }.distinct().singleOrNull() ?: "*/*"
         val intent =

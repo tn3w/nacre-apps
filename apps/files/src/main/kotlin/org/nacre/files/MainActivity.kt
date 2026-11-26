@@ -98,16 +98,22 @@ class MainActivity : ComponentActivity() {
         Store.init(applicationContext)
         val saved = savedInstanceState?.getString("tab") ?: intent.getStringExtra("tab")
         Tab.entries.find { it.name == saved }?.let { tab.value = it }
-        val external =
-            intent.data?.takeIf {
-                intent.action in setOf(Intent.ACTION_VIEW, Intent.ACTION_EDIT)
-            }
+        val external = intent.data?.takeIf {
+            granted(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val writable = granted(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
 
         setContent {
             NacreTheme {
                 Surface {
                     if (external != null) {
-                        Viewer(external, displayName(external), type(external), ::finish)
+                        Viewer(
+                            uri = external,
+                            name = displayName(external),
+                            type = type(external),
+                            writable = writable,
+                            onClose = ::finish
+                        )
                     } else {
                         Gated { FilesApp(tab) }
                     }
@@ -120,6 +126,11 @@ class MainActivity : ComponentActivity() {
         super.onSaveInstanceState(outState)
         outState.putString("tab", tab.value.name)
     }
+
+    private fun granted(flag: Int) = intent.action in
+        setOf(Intent.ACTION_VIEW, Intent.ACTION_EDIT) &&
+        intent.data?.scheme == "content" &&
+        intent.flags and flag != 0
 
     private fun type(uri: Uri) = intent.type ?: contentResolver.getType(uri) ?: ""
 
@@ -136,13 +147,11 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun Viewer(uri: Uri, name: String, type: String, onClose: () -> Unit) {
-    if (type ==
-        "application/pdf"
-    ) {
+fun Viewer(uri: Uri, name: String, type: String, writable: Boolean, onClose: () -> Unit) {
+    if (type == "application/pdf") {
         PdfViewer(uri, name, onClose)
     } else {
-        Editor(uri, name, onClose)
+        Editor(uri, name, writable, onClose)
     }
 }
 
@@ -255,13 +264,16 @@ fun FilesApp(tabState: MutableState<Tab>) {
             }
     }
 
-    fun paste(current: Clip) = work {
-        val moved =
-            current.files.map {
-                if (current.cut) Disk.move(it, folder) else Disk.copy(it, folder)
-            }
+    fun paste(current: Clip) {
         clip = null
-        moved + if (current.cut) current.files else emptyList()
+        val target = folder
+        work {
+            val pasted =
+                current.files.map {
+                    if (current.cut) Disk.move(it, target) else Disk.copy(it, target)
+                }
+            pasted + if (current.cut) current.files else emptyList()
+        }
     }
 
     val actions =
@@ -281,7 +293,7 @@ fun FilesApp(tabState: MutableState<Tab>) {
         )
 
     viewing?.let { file ->
-        Viewer(Uri.fromFile(file), file.name, Disk.mime(file)) {
+        Viewer(Uri.fromFile(file), file.name, Disk.mime(file), writable = true) {
             viewing = null
             version++
         }
