@@ -71,6 +71,23 @@ import kotlinx.coroutines.withContext
 
 val IconSize = 56.dp
 
+enum class Tone { Black, White }
+
+private val GLYPHS = mapOf(
+    "org.nacre.calculator" to (R.drawable.glyph_black_calculator to R.drawable.glyph_white_calculator),
+    "org.nacre.clock" to (R.drawable.glyph_black_clock to R.drawable.glyph_white_clock),
+    "org.nacre.contacts" to (R.drawable.glyph_black_contacts to R.drawable.glyph_white_contacts),
+    "org.nacre.messages" to (R.drawable.glyph_black_messages to R.drawable.glyph_white_messages),
+    "org.nacre.phone" to (R.drawable.glyph_black_phone to R.drawable.glyph_white_phone),
+    "com.android.settings" to (R.drawable.glyph_black_settings to R.drawable.glyph_white_settings),
+)
+
+private fun glyph(item: Item, tone: Tone?): Int? {
+    if (tone == null || item.kind != Kind.App) return null
+    val (black, white) = GLYPHS[item.target.substringBefore('/')] ?: return null
+    return if (tone == Tone.White) white else black
+}
+
 data class Visual(
     val label: String,
     val icon: ImageBitmap?,
@@ -106,8 +123,9 @@ private fun visual(item: Item, themed: Boolean, dark: Boolean): Visual? {
 }
 
 @Composable
-fun ItemIcon(item: Item, visual: Visual?, size: Dp = IconSize) {
+fun ItemIcon(item: Item, visual: Visual?, size: Dp = IconSize, tone: Tone? = null) {
     if (item.kind == Kind.Folder) return FolderIcon(item, size)
+    glyph(item, tone)?.let { return Image(painterResource(it), null, Modifier.size(size)) }
     val icon = visual?.icon ?: return Box(Modifier.size(size))
     Image(icon, null, Modifier.size(size).alpha(if (visual.dimmed) 0.5f else 1f))
 }
@@ -136,6 +154,7 @@ fun Tile(
     item: Item,
     labelColor: Color?,
     modifier: Modifier = Modifier,
+    tone: Tone? = null,
     open: (Visual, Rect) -> Unit,
     hold: (Visual, Rect) -> Unit,
     move: (Offset) -> Unit = {},
@@ -160,7 +179,7 @@ fun Tile(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        ItemIcon(item, visual)
+        ItemIcon(item, visual, tone = tone)
         labelColor?.let { Label(label, it) }
     }
 }

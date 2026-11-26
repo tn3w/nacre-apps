@@ -75,6 +75,7 @@ class LauncherState : ViewModel() {
     var removal = Rect.Zero
 
     var focusSearch by mutableStateOf(false)
+    var tone by mutableStateOf(Tone.White)
 
     fun follow(delta: Offset, slop: Float) {
         val drag = drag ?: return
@@ -185,6 +186,7 @@ fun Launcher(state: LauncherState) {
     }
     val darkText = rememberDarkText()
     val dark = isSystemInDarkTheme()
+    state.tone = if (darkText) Tone.Black else Tone.White
 
     LaunchedEffect(state.target) {
         val goal = state.target ?: return@LaunchedEffect
@@ -221,7 +223,7 @@ fun Launcher(state: LauncherState) {
         Drawer(state, motion, Modifier.offset { IntOffset(0, ((1 - state.progress) * height).roundToInt()) })
         state.folder?.let { id -> Store.folder(id)?.let { FolderView(it, state) } ?: run { state.folder = null } }
         state.menu?.let { ItemMenu(it, state) }
-        state.drag?.takeIf { it.moved }?.let { DragShadow(it) }
+        state.drag?.takeIf { it.moved }?.let { DragShadow(it, state) }
         if (state.settings) SettingsScreen { state.settings = false }
     }
 }
@@ -229,14 +231,14 @@ fun Launcher(state: LauncherState) {
 class DrawerMotion(val drag: (Float) -> Unit, val settle: (Float) -> Unit)
 
 @Composable
-private fun DragShadow(drag: Drag) {
+private fun DragShadow(drag: Drag, state: LauncherState) {
     val half = with(LocalDensity.current) { (IconSize / 2).roundToPx() }
     Box(
         Modifier
             .offset { IntOffset(drag.position.x.roundToInt() - half, drag.position.y.roundToInt() - half) }
             .scale(1.1f),
     ) {
-        ItemIcon(drag.item, rememberVisual(drag.item))
+        ItemIcon(drag.item, rememberVisual(drag.item), tone = state.tone)
     }
 }
 

@@ -229,6 +229,7 @@ fun HomeTile(item: Item, state: LauncherState, labelColor: Color?, modifier: Mod
         item,
         labelColor,
         modifier.alpha(if (hidden) 0f else 1f),
+        state.tone,
         open = { visual, bounds ->
             if (item.kind == Kind.Folder) state.folder = item.id else launch(visual, bounds)
         },
