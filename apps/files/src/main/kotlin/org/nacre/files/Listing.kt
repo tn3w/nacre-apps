@@ -243,35 +243,15 @@ fun Listing(
 }
 
 @Composable
-fun StorageCard(onCategory: (Category) -> Unit) {
+fun StorageCard(
+    volumes: List<Volume>,
+    version: Int,
+    onBrowse: (File) -> Unit,
+    onCategory: (Category) -> Unit
+) {
     val colors = MaterialTheme.colorScheme
-    val space by produceState(0L to 1L) {
-        value =
-            withContext(Dispatchers.IO) { Disk.space() }
-    }
-    val (used, total) = space
-    Column(
-        Modifier
-            .padding(16.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .background(colors.surfaceVariant)
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text("Storage", style = MaterialTheme.typography.titleMedium)
-        LinearProgressIndicator(
-            progress = { used.toFloat() / total },
-            modifier = Modifier.fillMaxWidth().height(8.dp),
-            color = colors.primary,
-            trackColor = colors.surface,
-            drawStopIndicator = {}
-        )
-        Text(
-            "${size(used)} used of ${size(total)}",
-            style = MaterialTheme.typography.bodySmall,
-            color = colors.outline
-        )
-    }
+    volumes.forEach { VolumeCard(it, version, onBrowse) }
+    Spacer(Modifier.height(8.dp))
     Category.entries.chunked(4).forEach { row ->
         Row(Modifier.padding(horizontal = 8.dp)) {
             row.forEach { category ->
@@ -305,6 +285,39 @@ fun StorageCard(onCategory: (Category) -> Unit) {
         style = MaterialTheme.typography.titleSmall,
         color = colors.outline
     )
+}
+
+@Composable
+private fun VolumeCard(volume: Volume, version: Int, onBrowse: (File) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val space by produceState(0L to 1L, volume, version) {
+        value = withContext(Dispatchers.IO) { runCatching { Disk.space(volume.root) } }
+            .getOrDefault(0L to 1L)
+    }
+    val (used, total) = space
+    Column(
+        Modifier
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(colors.surfaceVariant)
+            .clickable(enabled = volume.removable) { onBrowse(volume.root) }
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(volume.name, style = MaterialTheme.typography.titleMedium)
+        LinearProgressIndicator(
+            progress = { used.toFloat() / total },
+            modifier = Modifier.fillMaxWidth().height(8.dp),
+            color = colors.primary,
+            trackColor = colors.surface,
+            drawStopIndicator = {}
+        )
+        Text(
+            "${size(used)} used of ${size(total)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.outline
+        )
+    }
 }
 
 @Composable

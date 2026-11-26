@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
 import android.os.StatFs
+import android.os.storage.StorageManager
 import android.provider.MediaStore
 import android.provider.MediaStore.Files.FileColumns
 import android.webkit.MimeTypeMap
@@ -17,9 +18,14 @@ import android.widget.Toast
 import androidx.core.content.FileProvider
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
+import kotlin.io.path.ExperimentalPathApi
+import kotlin.io.path.copyToRecursively
+import kotlin.io.path.deleteRecursively
+import org.json.JSONObject
 
 data class Entry(
     val file: File,
@@ -79,12 +85,47 @@ private val TEXT =
 
 private const val MAX_ENTRIES = 100_000
 
-object Disk {
-    val root: File = Environment.getExternalStorageDirectory()
-    val trash = File(root, ".Trash")
-    val downloads = File(root, Environment.DIRECTORY_DOWNLOADS)
+data class Volume(val root: File, val name: String, val removable: Boolean)
 
-    fun name(file: File) = if (file == root) "Internal storage" else file.name
+@OptIn(ExperimentalPathApi::class)
+object Disk {
+    val home: File = Environment.getExternalStorageDirectory()
+    val downloads = File(home, Environment.DIRECTORY_DOWNLOADS)
+
+    @Volatile
+    var volumes = listOf(Volume(home, "Internal storage", false))
+        private set
+
+    fun refresh(context: Context) {
+        val manager = context.getSystemService(StorageManager::class.java)
+        volumes = manager.storageVolumes
+            .filter { it.state == Environment.MEDIA_MOUNTED }
+            .mapNotNull { volume ->
+                volume.directory?.let {
+                    Volume(it, volume.getDescription(context), volume.isRemovable)
+                }
+            }.ifEmpty { volumes }
+    }
+
+    fun volumeOf(file: File) = volumes.firstOrNull {
+        file.path == it.root.path || file.path.startsWith(it.root.path + File.separator)
+    }
+
+    fun isRoot(file: File) = volumes.any { it.root == file }
+
+    fun name(file: File) = volumes.find { it.root == file }?.name ?: file.name
+
+    private fun trashOf(file: File) = File(volumeOf(file)?.root ?: home, ".Trash")
+
+    fun isTrash(file: File) = volumes.any { file.startsWith(File(it.root, ".Trash")) }
+
+    fun isLink(file: File) = Files.isSymbolicLink(file.toPath())
+
+    private fun walk(file: File) = file.walkTopDown().onEnter { !isLink(it) }
+
+    fun delete(file: File) {
+        if (isLink(file)) file.delete() else file.toPath().deleteRecursively()
+    }
 
     fun entry(file: File, hidden: Boolean) = Entry(
         file = file,
@@ -102,62 +143,54 @@ object Disk {
         .sortedWith(order(settings))
 
     fun order(settings: Settings): Comparator<Entry> {
-        val order =
-            when (settings.sort) {
-                Sort.Name -> {
-                    compareBy<Entry> { it.file.name.lowercase() }
-                }
+        val order = when (settings.sort) {
+            Sort.Name -> compareBy<Entry> { it.file.name.lowercase() }
 
-                Sort.Modified -> {
-                    compareBy { it.modified }
-                }
+            Sort.Modified -> compareBy { it.modified }
 
-                Sort.Size -> {
-                    compareBy<Entry> { it.size }.thenBy { it.count }
-                }
+            Sort.Size -> compareBy<Entry> { it.size }.thenBy { it.count }
 
-                Sort.Type -> {
-                    compareBy<Entry> { it.file.extension.lowercase() }
-                        .thenBy { it.file.name.lowercase() }
-                }
-            }
+            Sort.Type -> compareBy<Entry> { it.file.extension.lowercase() }
+                .thenBy { it.file.name.lowercase() }
+        }
         val directed = if (settings.descending) order.reversed() else order
         return compareBy<Entry> { !it.folder }.then(directed)
     }
 
-    fun search(folder: File, query: String, settings: Settings) = folder
-        .walkTopDown()
-        .onEnter { it == folder || settings.hidden || !it.isHidden }
-        .drop(1)
-        .filter { (settings.hidden || !it.isHidden) && it.name.contains(query, true) }
-        .take(500)
-        .map { entry(it, settings.hidden) }
-        .sortedWith(order(settings))
-        .toList()
+    fun search(folder: File, query: String, settings: Settings, active: () -> Boolean) =
+        folder.walkTopDown()
+            .onEnter {
+                it == folder || (!isLink(it) && (settings.hidden || !it.isHidden))
+            }
+            .takeWhile { active() }
+            .drop(1)
+            .filter { (settings.hidden || !it.isHidden) && it.name.contains(query, true) }
+            .take(500)
+            .map { entry(it, settings.hidden) }
+            .sortedWith(order(settings))
+            .toList()
 
     fun query(context: Context, selection: String, settings: Settings): List<Entry> {
-        val arguments =
-            Bundle().apply {
-                putString(
-                    ContentResolver.QUERY_ARG_SQL_SELECTION,
-                    "($selection) AND format != 12289"
-                )
-                putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, "date_modified DESC")
-                putInt(ContentResolver.QUERY_ARG_LIMIT, 300)
-            }
+        val arguments = Bundle().apply {
+            putString(
+                ContentResolver.QUERY_ARG_SQL_SELECTION,
+                "($selection) AND format != 12289"
+            )
+            putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, "date_modified DESC")
+            putInt(ContentResolver.QUERY_ARG_LIMIT, 300)
+        }
         val uri = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
-        val paths =
-            context.contentResolver
-                .query(uri, arrayOf(FileColumns.DATA), arguments, null)
-                ?.use { cursor ->
-                    List(cursor.count) {
-                        cursor.moveToNext()
-                        cursor.getString(0)
-                    }
-                }.orEmpty()
+        val paths = context.contentResolver
+            .query(uri, arrayOf(FileColumns.DATA), arguments, null)
+            ?.use { cursor ->
+                List(cursor.count) {
+                    cursor.moveToNext()
+                    cursor.getString(0)
+                }
+            }.orEmpty()
         return paths
             .map(::File)
-            .filter { it.isFile && !it.startsWith(trash) }
+            .filter { it.isFile && !isTrash(it) }
             .filter {
                 settings.hidden ||
                     it.path.split('/').none { part -> part.startsWith('.') }
@@ -170,20 +203,19 @@ object Disk {
     fun recent(context: Context, settings: Settings) =
         query(context, "mime_type IS NOT NULL", settings).take(100)
 
-    fun space(): Pair<Long, Long> = StatFs(root.path).run {
-        totalBytes - availableBytes to
-            totalBytes
-    }
+    fun space(root: File): Pair<Long, Long> =
+        StatFs(root.path).run { totalBytes - availableBytes to totalBytes }
 
-    fun size(file: File): Long =
-        file.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+    fun size(file: File): Long = walk(file).filter { it.isFile }.sumOf { it.length() }
 
     fun unique(folder: File, name: String): File {
         val stem = name.substringBeforeLast('.').ifEmpty { name }
         val extension = name.removePrefix(stem)
         var target = File(folder, name)
         var index = 1
-        while (target.exists()) target = File(folder, "$stem (${index++})$extension")
+        while (target.exists() || isLink(target)) {
+            target = File(folder, "$stem (${index++})$extension")
+        }
         return target
     }
 
@@ -195,21 +227,52 @@ object Disk {
         }
     }
 
+    private fun duplicate(file: File, target: File) {
+        try {
+            file.toPath().copyToRecursively(target.toPath(), followLinks = false)
+        } catch (error: Exception) {
+            delete(target)
+            throw error
+        }
+    }
+
+    private fun relocate(file: File, target: File): File {
+        if (file.renameTo(target)) return target
+        duplicate(file, target)
+        delete(file)
+        return target
+    }
+
     fun copy(file: File, folder: File): File {
         checkTarget(file, folder)
-        val target = unique(folder, file.name)
-        file.copyRecursively(target)
-        return target
+        return unique(folder, file.name).also { duplicate(file, it) }
     }
 
     fun move(file: File, folder: File): File {
         if (file.parentFile == folder) return file
         checkTarget(file, folder)
-        val target = unique(folder, file.name)
-        if (file.renameTo(target)) return target
-        file.copyRecursively(target)
-        file.deleteRecursively()
-        return target
+        return relocate(file, unique(folder, file.name))
+    }
+
+    fun transfer(files: List<File>, folder: File, cut: Boolean): List<Pair<File, File>> {
+        val done = mutableListOf<Pair<File, File>>()
+        try {
+            files.forEach {
+                done += it to if (cut) move(it, folder) else copy(it, folder)
+            }
+        } catch (error: Exception) {
+            revert(done, cut)
+            throw error
+        }
+        return done
+    }
+
+    fun revert(done: List<Pair<File, File>>, cut: Boolean) = done.asReversed().forEach {
+        val (source, target) = it
+        when {
+            !cut -> delete(target)
+            source != target -> relocate(target, unique(source.parentFile!!, source.name))
+        }
     }
 
     private fun checkName(name: String) {
@@ -237,36 +300,105 @@ object Disk {
         return target
     }
 
-    fun toTrash(file: File): Trashed {
-        trash.mkdirs()
+    fun toTrash(files: List<File>): List<Trashed> {
+        val done = mutableListOf<Trashed>()
+        try {
+            files.forEach { done += toTrash(it) }
+        } catch (error: Exception) {
+            done.forEach(::restore)
+            throw error
+        }
+        return done
+    }
+
+    private fun toTrash(file: File): Trashed {
+        val trash = trashOf(file)
+        val folder = File(trash, "files").apply { mkdirs() }
+        val info = File(trash, "info").apply { mkdirs() }
         File(trash, ".nomedia").createNewFile()
-        val target = unique(trash, file.name)
-        if (!file.renameTo(target)) throw IOException("Couldn't delete ${file.name}")
-        return Trashed(target.path, file.path, System.currentTimeMillis())
+        val target = unique(folder, file.name)
+        val original = file.relativeTo(trash.parentFile!!).path
+        val item = Trashed(target.path, File(trash.parentFile, original).path, now())
+        File(
+            info,
+            "${target.name}.json"
+        ).writeText(item.toJson().put("original", original).toString())
+        if (!relocate(
+                file,
+                target
+            ).exists()
+        ) {
+            throw IOException("Couldn't delete ${file.name}")
+        }
+        return item
+    }
+
+    private fun now() = System.currentTimeMillis()
+
+    fun trashed(): List<Trashed> = volumes.flatMap { volume ->
+        val trash = File(volume.root, ".Trash")
+        File(trash, "files").listFiles().orEmpty().map { file ->
+            val info = File(trash, "info/${file.name}.json")
+            val json = runCatching { JSONObject(info.readText()) }.getOrNull()
+            val original = json?.optString("original")?.takeIf { it.isNotEmpty() }
+            val safe = original?.let { File(volume.root, it) }
+                ?.takeIf { volumeOf(it) == volume && !isTrash(it) }
+            Trashed(
+                file.path,
+                (safe ?: File(volume.root, file.name)).path,
+                json?.optLong("deleted") ?: file.lastModified()
+            )
+        }
+    }
+
+    fun purge() {
+        trashed().filter { it.expired }.forEach(::erase)
+        volumes.forEach { volume ->
+            val trash = File(volume.root, ".Trash")
+            File(trash, "info").listFiles().orEmpty()
+                .filter {
+                    !File(trash, "files/${it.name.removeSuffix(".json")}").exists()
+                }
+                .forEach { it.delete() }
+        }
+    }
+
+    fun erase(item: Trashed) {
+        val file = File(item.path)
+        delete(file)
+        File(file.parentFile!!.parentFile, "info/${file.name}.json").delete()
     }
 
     fun restore(item: Trashed): File {
+        val file = File(item.path)
         val original = File(item.original)
         original.parentFile?.mkdirs()
-        val target = unique(original.parentFile ?: root, original.name)
-        if (!File(item.path).renameTo(target)) throw IOException("Couldn't restore")
+        val target = relocate(file, unique(original.parentFile ?: home, original.name))
+        File(file.parentFile!!.parentFile, "info/${file.name}.json").delete()
         return target
     }
 
     fun compress(files: List<File>, folder: File): File {
         val name = if (files.size == 1) files[0].nameWithoutExtension else "Archive"
         val target = unique(folder, "$name.zip")
-        ZipOutputStream(target.outputStream().buffered()).use { zip ->
-            files.forEach { file ->
-                file.walkTopDown().filter { it != target }.forEach { item ->
-                    val path = item.relativeTo(file.parentFile!!).invariantSeparatorsPath
-                    zip.putNextEntry(ZipEntry(if (item.isDirectory) "$path/" else path))
-                    if (item.isFile) item.inputStream().use { it.copyTo(zip) }
-                    zip.closeEntry()
-                }
+        try {
+            ZipOutputStream(target.outputStream().buffered()).use { zip ->
+                files.forEach { file -> zipInto(zip, file, target) }
             }
+        } catch (error: Exception) {
+            target.delete()
+            throw error
         }
         return target
+    }
+
+    private fun zipInto(zip: ZipOutputStream, file: File, target: File) {
+        walk(file).filter { it != target && !isLink(it) }.forEach { item ->
+            val path = item.relativeTo(file.parentFile!!).invariantSeparatorsPath
+            zip.putNextEntry(ZipEntry(if (item.isDirectory) "$path/" else path))
+            if (item.isFile) item.inputStream().use { it.copyTo(zip) }
+            zip.closeEntry()
+        }
     }
 
     fun extract(archive: File): File {
@@ -275,7 +407,7 @@ object Disk {
         try {
             unzip(archive, target)
         } catch (error: Exception) {
-            target.deleteRecursively()
+            delete(target)
             throw error
         }
         return target
@@ -311,7 +443,7 @@ object Disk {
     }
 
     fun scan(context: Context, files: List<File>) {
-        val paths = files.flatMap { file -> file.walkTopDown().map { it.path }.toList() }
+        val paths = files.flatMap { file -> walk(file).map { it.path }.toList() }
         MediaScannerConnection.scanFile(context, paths.toTypedArray(), null, null)
     }
 

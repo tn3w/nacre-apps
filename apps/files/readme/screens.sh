@@ -6,13 +6,15 @@ seeded=(Documents/Notes Documents/Reports Documents/budget.csv Download/manual.t
 
 stage() {
     adb shell appops set "$package" MANAGE_EXTERNAL_STORAGE allow
-    adb shell 'cd /sdcard && mkdir -p Documents/Notes Documents/Reports .Trash &&
+    adb shell 'cd /sdcard && mkdir -p Documents/Notes Documents/Reports .Trash/files .Trash/info &&
         echo "Groceries" > Documents/Notes/list.txt &&
         echo "Ideas" > Documents/Notes/ideas.md &&
         echo "Q3" > Documents/Reports/q3.txt &&
         echo "month,amount" > Documents/budget.csv &&
         echo "Manual" > Download/manual.txt &&
-        echo "old" > .Trash/draft.txt'
+        echo "old" > .Trash/files/draft.txt &&
+        echo "{\"original\":\"Documents/draft.txt\",\"deleted\":$(date +%s)000}" \
+            > .Trash/info/draft.txt.json'
     local files=(Documents/Notes/list.txt Documents/Notes/ideas.md
         Documents/Reports/q3.txt Documents/budget.csv Download/manual.txt)
     for path in "${files[@]}"; do
@@ -22,7 +24,6 @@ stage() {
     local root=/storage/emulated/0
     preferences files <<EOF
 <string name="starred">["$root/Documents/Notes","$root/Documents/budget.csv"]</string>
-<string name="trash">[{"path":"$root/.Trash/draft.txt","original":"$root/Documents/draft.txt","deleted":$(date +%s)000}]</string>
 EOF
 }
 

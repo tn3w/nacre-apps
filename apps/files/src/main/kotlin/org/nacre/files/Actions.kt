@@ -25,7 +25,7 @@ class Actions(
     private val onSelect: (Set<File>) -> Unit,
     private val onClip: (Clip) -> Unit,
     private val onDialog: (Dialog) -> Unit,
-    private val work: (() -> List<File>) -> Unit
+    private val work: (() -> Done) -> Unit
 ) {
     private val files get() = selection.toList()
     private val count get() = items(files.size)
@@ -36,36 +36,23 @@ class Actions(
         Dialog.Confirm("Move $count to trash?", "Move to trash") {
             val selected = files
             work {
-                selected.forEach { file ->
-                    val item = Disk.toTrash(file)
-                    Store.updateTrash { this + item }
-                }
+                val trashed = Disk.toTrash(selected)
                 Store.star(selected.map { it.path }, false)
-                selected
+                Done(selected, "Moved $count to trash") { trashed.map(Disk::restore) }
             }
         }
     )
 
     private fun restore() {
         val items = trashed()
-        work {
-            items.map { item ->
-                Disk.restore(item).also { Store.updateTrash { this - item } }
-            }
-        }
+        work { Done(items.map(Disk::restore)) }
     }
 
     private fun deleteForever(items: List<Trashed>) = onDialog(
-        Dialog.Confirm(
-            "Permanently delete ${items(items.size)}?",
-            "Delete"
-        ) {
+        Dialog.Confirm("Permanently delete ${items(items.size)}?", "Delete") {
             work {
-                items.forEach { item ->
-                    File(item.path).deleteRecursively()
-                    Store.updateTrash { this - item }
-                }
-                emptyList()
+                items.forEach(Disk::erase)
+                Done(emptyList())
             }
         }
     )
@@ -75,7 +62,7 @@ class Actions(
     private fun rename(file: File) = onDialog(
         Dialog.Name("Rename", file.name) { name ->
             work {
-                listOf(file, Disk.rename(file, name))
+                Done(listOf(file, Disk.rename(file, name)))
             }
         }
     )
@@ -129,10 +116,14 @@ class Actions(
                     }
                     item("Compress") {
                         val selected = files
-                        work { listOf(Disk.compress(selected, selected[0].parentFile!!)) }
+                        work {
+                            Done(
+                                listOf(Disk.compress(selected, selected[0].parentFile!!))
+                            )
+                        }
                     }
                     if (single != null && Disk.isZip(single)) {
-                        item("Extract") { work { listOf(Disk.extract(single)) } }
+                        item("Extract") { work { Done(listOf(Disk.extract(single))) } }
                     }
                     if (single?.isFile ==
                         true

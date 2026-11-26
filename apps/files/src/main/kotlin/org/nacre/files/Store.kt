@@ -49,7 +49,6 @@ object Store {
 
     val settings = MutableStateFlow(Settings())
     val starred = MutableStateFlow(emptySet<String>())
-    val trash = MutableStateFlow(emptyList<Trashed>())
 
     fun init(context: Context) {
         if (::preferences.isInitialized) return
@@ -58,12 +57,6 @@ object Store {
             runCatching { Settings.fromJson(JSONObject(read("settings"))) }
                 .getOrDefault(Settings())
         starred.value = array("starred") { getString(it) }.toSet()
-        trash.value =
-            array("trash") {
-                getJSONObject(it).run {
-                    Trashed(getString("path"), getString("original"), getLong("deleted"))
-                }
-            }
     }
 
     private fun read(key: String) = preferences.getString(key, null)!!
@@ -83,11 +76,5 @@ object Store {
     fun star(paths: List<String>, on: Boolean) {
         starred.value = if (on) starred.value + paths else starred.value - paths.toSet()
         preferences.edit { putString("starred", JSONArray(starred.value).toString()) }
-    }
-
-    fun updateTrash(change: List<Trashed>.() -> List<Trashed>) {
-        trash.value = trash.value.change()
-        val json = JSONArray(trash.value.map { it.toJson() })
-        preferences.edit { putString("trash", json.toString()) }
     }
 }

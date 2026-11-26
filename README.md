@@ -155,7 +155,7 @@ Minimal, private system apps for a GrapheneOS-like Android ROM. No Google, no ne
   </picture>
 </p>
 
-<p align="center">File manager with categories, search, starred files, trash, copy and move, zip archives, a text editor and a sandboxed PDF viewer.</p>
+<p align="center">File manager for internal storage, SD cards and USB drives with categories, search, starred files, per-volume trash, undoable copy and move, zip archives, a text editor and a sandboxed PDF viewer.</p>
 
 <p align="center">
   <picture>

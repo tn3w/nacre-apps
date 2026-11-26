@@ -4,6 +4,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
+import android.os.storage.StorageManager
+import android.os.storage.StorageVolume
 import android.provider.OpenableColumns
 import android.provider.Settings as SystemSettings
 import android.widget.Toast
@@ -32,6 +34,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -39,6 +45,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
@@ -63,6 +70,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.nacre.core.NacreTheme
@@ -75,6 +83,12 @@ enum class Tab(val icon: Int) {
 }
 
 class Clip(val files: List<File>, val cut: Boolean)
+
+class Done(
+    val files: List<File>,
+    val message: String? = null,
+    val undo: (() -> List<File>)? = null
+)
 
 sealed interface Dialog {
     data class Name(val title: String, val initial: String, val done: (String) -> Unit) :
@@ -191,9 +205,8 @@ fun FilesApp(tabState: MutableState<Tab>) {
     val scope = rememberCoroutineScope()
     val settings by Store.settings.collectAsState()
     val starred by Store.starred.collectAsState()
-    val trash by Store.trash.collectAsState()
     var tab by tabState
-    var path by rememberSaveable { mutableStateOf(Disk.root.path) }
+    var path by rememberSaveable { mutableStateOf(Disk.home.path) }
     var category by rememberSaveable { mutableStateOf<Category?>(null) }
     var query by rememberSaveable { mutableStateOf<String?>(null) }
     var selection by remember { mutableStateOf(emptySet<File>()) }
@@ -202,15 +215,41 @@ fun FilesApp(tabState: MutableState<Tab>) {
     var dialog by remember { mutableStateOf<Dialog?>(null) }
     var busy by remember { mutableStateOf(false) }
     var version by remember { mutableIntStateOf(0) }
+    var volumes by remember { mutableStateOf(Disk.volumes) }
+    val snackbar = remember { SnackbarHostState() }
     val folder = File(path)
     val plain = tab == Tab.Browse && category == null && query == null
 
-    LifecycleResumeEffect(Unit) {
+    LaunchedEffect(tab, path, category) { selection = emptySet() }
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { Disk.purge() } }
+
+    fun refreshVolumes() {
+        Disk.refresh(context)
+        volumes = Disk.volumes
+        if (Disk.volumeOf(folder) == null) path = Disk.home.path
         version++
+    }
+
+    LifecycleResumeEffect(Unit) {
+        refreshVolumes()
         onPauseOrDispose {}
     }
-    LaunchedEffect(tab, path, category) { selection = emptySet() }
-    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { purge() } }
+
+    DisposableEffect(Unit) {
+        val manager = context.getSystemService(StorageManager::class.java)
+        val callback = object : StorageManager.StorageVolumeCallback() {
+            override fun onStateChanged(volume: StorageVolume) = refreshVolumes()
+        }
+        manager.registerStorageVolumeCallback(context.mainExecutor, callback)
+        onDispose { manager.unregisterStorageVolumeCallback(callback) }
+    }
+
+    val trash by produceState(emptyList<Trashed>(), version, volumes) {
+        value =
+            withContext(Dispatchers.IO) {
+                Disk.trashed().sortedByDescending { it.deleted }
+            }
+    }
 
     val entries by produceState<List<Entry>?>(
         null,
@@ -226,20 +265,33 @@ fun FilesApp(tabState: MutableState<Tab>) {
         if (!query.isNullOrBlank()) delay(250)
         value =
             withContext(Dispatchers.IO) {
-                load(context, tab, folder, category, query, settings, starred, trash)
+                val job = coroutineContext.job
+                load(context, tab, folder, category, query, settings, starred, trash) {
+                    job.isActive
+                }
             }
     }
 
-    fun work(block: () -> List<File>) {
+    fun work(block: () -> Done) {
         busy = true
         selection = emptySet()
         scope.launch {
             val result = withContext(Dispatchers.IO) { runCatching(block) }
-            result.onSuccess { Disk.scan(context, it) }.onFailure {
-                Toast.makeText(context, it.message ?: "Failed", Toast.LENGTH_SHORT).show()
-            }
             busy = false
             version++
+            val done = result.getOrElse {
+                Toast.makeText(context, it.message ?: "Failed", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            Disk.scan(context, done.files)
+            val message = done.message ?: return@launch
+            val undo = done.undo ?: return@launch
+            val action = snackbar.showSnackbar(
+                message,
+                "Undo",
+                duration = SnackbarDuration.Long
+            )
+            if (action == SnackbarResult.ActionPerformed) work { Done(undo()) }
         }
     }
 
@@ -260,7 +312,7 @@ fun FilesApp(tabState: MutableState<Tab>) {
         val title = if (directory) "New folder" else "New file"
         dialog =
             Dialog.Name(title, if (directory) "" else ".txt") { name ->
-                work { listOf(Disk.create(folder, name, directory)) }
+                work { Done(listOf(Disk.create(folder, name, directory))) }
             }
     }
 
@@ -268,11 +320,12 @@ fun FilesApp(tabState: MutableState<Tab>) {
         clip = null
         val target = folder
         work {
-            val pasted =
-                current.files.map {
-                    if (current.cut) Disk.move(it, target) else Disk.copy(it, target)
-                }
-            pasted + if (current.cut) current.files else emptyList()
+            val done = Disk.transfer(current.files, target, current.cut)
+            val verb = if (current.cut) "Moved" else "Copied"
+            Done(done.flatMap { it.toList() }, "$verb ${items(done.size)}") {
+                Disk.revert(done, current.cut)
+                done.flatMap { it.toList() }
+            }
         }
     }
 
@@ -301,15 +354,15 @@ fun FilesApp(tabState: MutableState<Tab>) {
     }
 
     BackHandler(selection.isNotEmpty()) { selection = emptySet() }
-    BackHandler(
-        selection.isEmpty() && tab == Tab.Browse && (!plain || folder != Disk.root)
-    ) {
-        when {
-            query != null -> query = null
-            category != null -> category = null
-            else -> path = folder.parent ?: Disk.root.path
-        }
+    fun back() = when {
+        query != null -> query = null
+        category != null -> category = null
+        Disk.isRoot(folder) -> path = Disk.home.path
+        else -> path = folder.parent ?: Disk.home.path
     }
+
+    val home = folder == Disk.home
+    BackHandler(selection.isEmpty() && tab == Tab.Browse && (!plain || !home)) { back() }
 
     when (val current = dialog) {
         null -> {}
@@ -346,17 +399,11 @@ fun FilesApp(tabState: MutableState<Tab>) {
                 tab == Tab.Browse -> {
                     BrowseBar(
                         title = category?.name ?: Disk.name(folder),
-                        back = !plain || folder != Disk.root,
+                        back = !plain || !home,
                         query = query,
                         settings = settings,
                         onQuery = { query = it },
-                        onBack = {
-                            when {
-                                query != null -> query = null
-                                category != null -> category = null
-                                else -> path = folder.parent ?: Disk.root.path
-                            }
-                        },
+                        onBack = ::back,
                         onCreate = ::create,
                         onSort = { dialog = Dialog.Sorting }
                     )
@@ -397,6 +444,7 @@ fun FilesApp(tabState: MutableState<Tab>) {
                 }
             }
         },
+        snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
             if (plain && selection.isEmpty() && clip == null) {
                 FloatingActionButton({ create(directory = true) }) {
@@ -433,38 +481,23 @@ fun FilesApp(tabState: MutableState<Tab>) {
                 }
             },
             header = {
-                if (plain && folder == Disk.root) {
+                if (plain && home) {
                     item {
-                        StorageCard { picked ->
-                            if (picked ==
-                                Category.Downloads
-                            ) {
+                        StorageCard(volumes, version, ::browse) { picked ->
+                            if (picked == Category.Downloads) {
                                 browse(Disk.downloads)
                             } else {
-                                category =
-                                    picked
+                                category = picked
                             }
                         }
                     }
                 }
-                if (plain &&
-                    folder != Disk.root
-                ) {
+                if (plain && !home) {
                     item { Breadcrumbs(folder) { path = it.path } }
                 }
             }
         )
     }
-}
-
-private fun purge() {
-    val (expired, kept) =
-        Store.trash.value.partition {
-            it.expired ||
-                !File(it.path).exists()
-        }
-    expired.forEach { File(it.path).deleteRecursively() }
-    if (expired.isNotEmpty()) Store.updateTrash { kept }
 }
 
 private fun load(
@@ -475,11 +508,12 @@ private fun load(
     query: String?,
     settings: Settings,
     starred: Set<String>,
-    trash: List<Trashed>
+    trash: List<Trashed>,
+    active: () -> Boolean
 ): List<Entry> = when (tab) {
     Tab.Browse -> {
         when {
-            !query.isNullOrBlank() -> Disk.search(folder, query, settings)
+            !query.isNullOrBlank() -> Disk.search(folder, query, settings, active)
             category != null -> Disk.category(context, category, settings)
             else -> Disk.list(folder, settings)
         }
@@ -499,7 +533,6 @@ private fun load(
 
     Tab.Trash -> {
         trash
-            .sortedByDescending { it.deleted }
             .map { File(it.path) }
             .filter { it.exists() }
             .map { Disk.entry(it, true) }
@@ -586,7 +619,7 @@ private fun BrowseBar(
 private fun Breadcrumbs(folder: File, onPick: (File) -> Unit) {
     val trail =
         generateSequence(folder) { it.parentFile }
-            .takeWhile { it.path.startsWith(Disk.root.path) }
+            .takeWhile { Disk.volumeOf(it) != null }
             .toList()
             .reversed()
     Row(
