@@ -91,3 +91,13 @@ Minimal, private system apps for a GrapheneOS-like Android ROM. No Google, no ne
     <img src="apps/messages/readme/screens-light.png" alt="Messages screens">
   </picture>
 </p>
+
+<br>
+
+<p align="center"><b>Wallpapers</b></p>
+
+<p align="center">Liquid-chrome diffraction, contour and nacre wallpapers in the icon sheen style, made by <code>scripts/wallpaper.py</code>.</p>
+
+<p align="center">
+  <a href="wallpapers"><img src="wallpapers/readme.png" alt="Wallpapers"></a>
+</p>
