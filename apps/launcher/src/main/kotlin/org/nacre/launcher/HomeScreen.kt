@@ -467,6 +467,7 @@ fun ItemMenu(menu: Menu, state: LauncherState) {
 fun FolderView(folder: Item, state: LauncherState) {
     val launch = rememberLaunch()
     var name by remember(folder.id) { mutableStateOf(folder.name) }
+    val tone = if (isSystemInDarkTheme()) Tone.White else Tone.Black
     Box(
         Modifier
             .fillMaxSize()
@@ -505,6 +506,7 @@ fun FolderView(folder: Item, state: LauncherState) {
                             child,
                             MaterialTheme.colorScheme.onSurface,
                             Modifier.padding(vertical = 8.dp),
+                            tone,
                             open = launch,
                             hold = { visual, bounds ->
                                 state.menu = Menu(bounds, child, visual.app, folder = folder.id)

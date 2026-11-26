@@ -124,25 +124,30 @@ private fun visual(item: Item, themed: Boolean, dark: Boolean): Visual? {
 
 @Composable
 fun ItemIcon(item: Item, visual: Visual?, size: Dp = IconSize, tone: Tone? = null) {
-    if (item.kind == Kind.Folder) return FolderIcon(item, size)
+    if (item.kind == Kind.Folder) return FolderIcon(item, size, tone)
     glyph(item, tone)?.let { return Image(painterResource(it), null, Modifier.size(size)) }
     val icon = visual?.icon ?: return Box(Modifier.size(size))
     Image(icon, null, Modifier.size(size).alpha(if (visual.dimmed) 0.5f else 1f))
 }
 
 @Composable
-private fun FolderIcon(folder: Item, size: Dp) {
+private fun FolderIcon(folder: Item, size: Dp, tone: Tone?) {
+    val background = when (tone) {
+        Tone.White -> Color.White.copy(alpha = 0.16f)
+        Tone.Black -> Color.Black.copy(alpha = 0.08f)
+        null -> MaterialTheme.colorScheme.surfaceContainer
+    }
     Box(
         Modifier
             .size(size)
             .clip(RoundedCornerShape(size / 3.5f))
-            .background(MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.85f))
+            .background(background)
             .padding(size / 7),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(size / 14)) {
             folder.children.take(4).chunked(2).forEach { pair ->
                 Row(horizontalArrangement = Arrangement.spacedBy(size / 14)) {
-                    pair.forEach { ItemIcon(it, rememberVisual(it), size * 5 / 14) }
+                    pair.forEach { ItemIcon(it, rememberVisual(it), size * 5 / 14, tone) }
                 }
             }
         }
