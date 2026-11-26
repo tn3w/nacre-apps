@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 WIDTH, HEIGHT = 1224, 2720
 INK = 0.25
+LENS_Y = 186.5
 
 
 def grid():
@@ -106,11 +107,11 @@ def phone(scale):
     plane(70, 313, 350, 697, 940, 35)
     plane(140, 338, 105, 655, 268, 80)
     plane(200, 366, 131, 627, 242, 56)
-    plane(120, 405, 160, 527, 234, 37)
-    plane(120, 530, 160, 604, 234, 37)
-    for center_x, radius in [(440, 30), (500, 18), (567, 31)]:
+    plane(120, 397, 149.5, 519, 223.5, 37)
+    plane(120, 522, 149.5, 596, 223.5, 37)
+    for center_x, radius in [(432, 30), (492, 18), (559, 31)]:
         left, right = center_x - radius, center_x + radius
-        plane(60, left, 197 - radius, right, 197 + radius, radius)
+        plane(60, left, LENS_Y - radius, right, LENS_Y + radius, radius)
     plane(160, 673, 140, 695, 296, 3)
 
     box(293, 45, 717, 955, 55)
@@ -125,11 +126,11 @@ def phone(scale):
     box(338, 105, 655, 268, 80, fill=0)
     box(352, 118, 641, 255, 70)
     box(366, 131, 627, 242, 56)
-    box(405, 160, 527, 234, 37)
-    ring(567, 197, 37)
-    lenses = [(440, 30), (440, 14), (500, 18), (500, 7), (567, 31), (567, 15)]
+    box(397, 149.5, 519, 223.5, 37)
+    ring(559, LENS_Y, 37)
+    lenses = [(432, 30), (432, 14), (492, 18), (492, 7), (559, 31), (559, 15)]
     for center_x, radius in lenses:
-        ring(center_x, 197, radius)
+        ring(center_x, LENS_Y, radius)
     ring(535, 104, 21, fill=0)
     ring(535, 104, 9)
 
