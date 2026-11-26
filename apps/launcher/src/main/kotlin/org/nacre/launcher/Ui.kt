@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -148,12 +149,16 @@ private fun FolderIcon(folder: Item, size: Dp, tone: Tone?) {
             .size(size)
             .clip(RoundedCornerShape(size / 3.5f))
             .background(background)
-            .padding(size / 7),
+            .padding(size / 12),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(size / 14)) {
+        Column(
+            Modifier.fillMaxSize(),
+            Arrangement.Center,
+            Alignment.CenterHorizontally,
+        ) {
             folder.children.take(4).chunked(2).forEach { pair ->
-                Row(horizontalArrangement = Arrangement.spacedBy(size / 14)) {
-                    pair.forEach { ItemIcon(it, rememberVisual(it), size * 5 / 14, tone) }
+                Row {
+                    pair.forEach { ItemIcon(it, rememberVisual(it), size * 5 / 12, tone) }
                 }
             }
         }
