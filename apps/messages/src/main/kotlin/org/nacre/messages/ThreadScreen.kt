@@ -484,14 +484,15 @@ private fun safeUri(url: String): Uri? {
     val full = if (url.startsWith("www.", ignoreCase = true)) "https://$url" else url
     val uri = runCatching { Uri.parse(full) }.getOrNull() ?: return null
     if (uri.scheme?.lowercase() !in listOf("http", "https")) return null
+    if (uri.userInfo != null || '\\' in full) return null
     val host = uri.host ?: return null
     val ascii =
         runCatching { IDN.toASCII(host, IDN.ALLOW_UNASSIGNED) }.getOrNull() ?: return null
+    val port = if (uri.port == -1) "" else ":${uri.port}"
     return uri
         .buildUpon()
-        .encodedAuthority(
-            uri.encodedAuthority?.replace(host, ascii),
-        ).build()
+        .encodedAuthority(ascii.lowercase() + port)
+        .build()
 }
 
 fun Context.copyText(text: String) {
@@ -1129,11 +1130,7 @@ private fun Context.readFile(
     uri: Uri,
     limit: Int,
 ): Part? {
-    if (uri.scheme != "content" ||
-        uri.authority in setOf("org.nacre.messages.files", "mms", "sms")
-    ) {
-        return null
-    }
+    if (!uri.isForeignContent()) return null
     val name =
         contentResolver
             .query(

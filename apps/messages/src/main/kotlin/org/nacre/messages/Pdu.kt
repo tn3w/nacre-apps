@@ -7,6 +7,7 @@ const val MAX_PDU_BYTES = 4 * 1024 * 1024
 private const val MAX_PARTS = 32
 private const val MAX_TEXT_BYTES = 4096
 private const val MAX_ADDRESSES = 64
+private const val MAX_ADDRESS = 128
 
 const val TYPE_SEND_REQ = 0x80
 const val TYPE_NOTIFICATION_IND = 0x82
@@ -232,7 +233,7 @@ private fun Reader.pdu(): Pdu {
                 TO, CC -> pdu.copy(to = pdu.to + address(encodedText()))
                 SUBJECT -> pdu.copy(subject = encodedText())
                 CONTENT_LOCATION -> pdu.copy(location = text())
-                MESSAGE_SIZE -> pdu.copy(size = longInteger())
+                MESSAGE_SIZE -> pdu.copy(size = longInteger().coerceAtLeast(0))
                 EXPIRY -> pdu.copy(expiry = expiry())
                 DATE -> pdu.copy(date = longInteger())
                 MESSAGE_ID -> pdu.copy(messageId = text())
@@ -255,7 +256,7 @@ private fun Reader.expiry(): Long {
     return if (token == 0x80) time else System.currentTimeMillis() / 1000 + time
 }
 
-private fun address(raw: String) = raw.substringBefore("/TYPE=").trim()
+private fun address(raw: String) = raw.substringBefore("/TYPE=").trim().take(MAX_ADDRESS)
 
 private fun Reader.contentType(): ContentType {
     val first = peek()
@@ -304,7 +305,7 @@ private class Writer {
     fun bytes(value: ByteArray) = out.write(value)
 
     fun text(value: String) {
-        val bytes = value.toByteArray(Charsets.UTF_8)
+        val bytes = value.filter { it >= ' ' }.toByteArray(Charsets.UTF_8)
         if (bytes.firstOrNull()?.let { it.toInt() and 0xFF >= 0x80 } == true) byte(0x7F)
         bytes(bytes)
         byte(0)

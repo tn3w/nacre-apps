@@ -51,7 +51,11 @@ private val PERMISSIONS =
         Manifest.permission.POST_NOTIFICATIONS,
     )
 private val PRIVATE_AUTHORITIES =
-    setOf("org.nacre.messages.files", "mms", "sms", "mms-sms")
+    setOf("org.nacre.messages.files", "mms", "sms", "mms-sms", "com.android.contacts")
+
+fun Uri.isForeignContent() =
+    scheme == ContentResolver.SCHEME_CONTENT &&
+        authority?.substringAfterLast('@') !in PRIVATE_AUTHORITIES
 
 sealed interface Screen {
     data class Home(
@@ -211,10 +215,8 @@ class MainActivity : ComponentActivity() {
         val many =
             getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
         return (listOfNotNull(single) + many)
+            .filter { it.isForeignContent() }
             .filter {
-                it.scheme == ContentResolver.SCHEME_CONTENT &&
-                    it.authority !in PRIVATE_AUTHORITIES
-            }.filter {
                 type?.startsWith("image/") == true ||
                     contentResolver.getType(it) in IMAGE_TYPES
             }.take(SHARED_IMAGES)

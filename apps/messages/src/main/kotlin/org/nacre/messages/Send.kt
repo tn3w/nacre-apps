@@ -16,9 +16,12 @@ import java.io.File
 import java.util.UUID
 
 private const val PROVIDER = "org.nacre.messages.files"
+private val MMS_PACKAGES = listOf("com.android.phone", "com.android.mms.service")
 private const val MMS_SIZE_FALLBACK = 300 * 1024
 private const val MMS_VERSION = 0x12
 const val UTF_8 = 106
+private val UNSAFE_NAME = Regex("[/\\\\<>:\"]|\\.\\.")
+private val MIME_TYPE = Regex("[a-z0-9.+-]{1,64}/[a-z0-9.+-]{1,64}")
 const val STATE_DOWNLOADING = 0x81
 const val STATE_FAILED = 0x87
 
@@ -241,14 +244,23 @@ private fun Context.storedParts(id: Long): List<Part> =
 private fun Context.pduFile(name: String): File =
     File(cacheDir, "mms").apply { mkdirs() }.resolve(name)
 
-private fun Context.shareWithMmsService(file: File): Uri {
+private fun Context.shareWithMmsService(
+    file: File,
+    flags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION,
+): Uri {
     val uri = FileProvider.getUriForFile(this, PROVIDER, file)
+    MMS_PACKAGES.forEach { runCatching { grantUriPermission(it, uri, flags) } }
+    return uri
+}
+
+fun Context.releasePdu(file: File) {
     val flags =
         Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-    listOf("com.android.phone", "com.android.mms.service").forEach {
-        runCatching { grantUriPermission(it, uri, flags) }
+    runCatching {
+        val uri = FileProvider.getUriForFile(this, PROVIDER, file)
+        MMS_PACKAGES.forEach { revokeUriPermission(it, uri, flags) }
     }
-    return uri
+    file.delete()
 }
 
 fun Context.transmitMms(
@@ -268,13 +280,13 @@ fun Context.transmitMms(
             statusIntent(StatusReceiver.MMS_SENT, uri),
         )
     }.onFailure {
-        file.delete()
+        releasePdu(file)
         setMmsBox(uri, Mms.MESSAGE_BOX_FAILED)
     }
 }
 
 fun Context.finishMmsSend(uri: Uri) {
-    pduFile("send-${uri.lastPathSegment}.pdu").delete()
+    releasePdu(pduFile("send-${uri.lastPathSegment}.pdu"))
 }
 
 private fun transactionId() =
@@ -298,7 +310,7 @@ fun Context.download(
         smsManager(subscription).downloadMultimediaMessage(
             this,
             location,
-            shareWithMmsService(file),
+            shareWithMmsService(file, Intent.FLAG_GRANT_WRITE_URI_PERMISSION),
             null,
             statusIntent(StatusReceiver.MMS_DOWNLOADED, uri),
         )
@@ -306,7 +318,7 @@ fun Context.download(
 }
 
 fun Context.downloadFailed(uri: Uri) {
-    pduFile("download-${uri.lastPathSegment}.pdu").delete()
+    releasePdu(pduFile("download-${uri.lastPathSegment}.pdu"))
     val values = contentValuesOf(Mms.STATUS to STATE_FAILED)
     runCatching { contentResolver.update(uri, values, null, null) }
 }
@@ -316,7 +328,7 @@ fun Context.readDownload(uri: Uri): ByteArray? {
     return try {
         if (file.length() !in 1..MAX_PDU_BYTES) null else file.readBytes()
     } finally {
-        file.delete()
+        releasePdu(file)
     }
 }
 
@@ -331,7 +343,7 @@ fun Context.acknowledge(
         val intent = statusIntent(StatusReceiver.MMS_ACKNOWLEDGED, Uri.fromFile(file))
         smsManager(subscription)
             .sendMultimediaMessage(this, shareWithMmsService(file), null, null, intent)
-    }.onFailure { file.delete() }
+    }.onFailure { releasePdu(file) }
 }
 
 fun Context.persistMms(
@@ -378,12 +390,17 @@ private fun Context.insertPart(
     index: Int,
     part: Part,
 ) {
-    val name = part.name.ifEmpty { "part$index" }
+    val name =
+        part.name
+            .clean()
+            .replace(UNSAFE_NAME, "_")
+            .ifEmpty { "part$index" }
+    val type = part.type.takeIf { it.matches(MIME_TYPE) } ?: "application/octet-stream"
     val values =
         contentValuesOf(
             Mms.Part.MSG_ID to id,
             Mms.Part.SEQ to index,
-            Mms.Part.CONTENT_TYPE to part.type,
+            Mms.Part.CONTENT_TYPE to type,
             Mms.Part.NAME to name,
             Mms.Part.CONTENT_LOCATION to name,
             Mms.Part.CONTENT_ID to "<$name>",

@@ -220,7 +220,7 @@ class StatusReceiver : BroadcastReceiver() {
                 }
 
                 MMS_ACKNOWLEDGED -> {
-                    uri.path?.let { File(it).delete() }
+                    uri.path?.let { context.releasePdu(File(it)) }
                 }
             }
         }
@@ -463,7 +463,8 @@ fun Context.notifyThread(thread: Long) {
                     null,
                     "Copy $it",
                     threadIntent(ActionReceiver.COPY_CODE, thread, code = it),
-                ).build()
+                ).setAuthenticationRequired(true)
+                .build()
         }
     val public =
         Notification
