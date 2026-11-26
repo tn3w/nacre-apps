@@ -51,11 +51,12 @@ open class MainActivity : ComponentActivity() {
             setResult(RESULT_CANCELED)
             return finish()
         }
-        if (savedInstanceState == null && intent.getBooleanExtra(EXTRA_FRONT, false)) {
-            Store.update { copy(front = true) }
+        if (savedInstanceState == null) {
+            select(intent)
+        } else {
+            val saved = savedInstanceState.getString("tab")
+            mode.value = launch.modes.find { it.name == saved } ?: launch.start
         }
-        val start = savedInstanceState?.getString("tab") ?: intent.getStringExtra("tab")
-        mode.value = launch.modes.find { it.name == start } ?: launch.start
         camera = Camera(this)
         listener = orientationListener()
 
@@ -75,6 +76,18 @@ open class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val shortcut = intent.hasExtra("tab") || intent.hasExtra(EXTRA_FRONT)
+        if (shortcut && !launch.capture && camera.recording == null) select(intent)
+    }
+
+    private fun select(intent: Intent) {
+        if (intent.getBooleanExtra(EXTRA_FRONT, false)) Store.update { copy(front = true) }
+        val tab = intent.getStringExtra("tab")
+        mode.value = launch.modes.find { it.name == tab } ?: launch.start
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
