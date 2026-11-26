@@ -4,7 +4,7 @@ from functools import partial
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFilter
 
 WIDTH, HEIGHT = 1224, 2720
 INK = 0.25
@@ -177,11 +177,6 @@ def phone(scale):
         box(382 + index * 10, 813, 387 + index * 10, 826, 2)
     box(335, 850, 410, 895, 6)
     ring(400, 858, 4)
-
-    font = ImageFont.load_default(size=round(16 * unit))
-    label = Image.new("L", (round(90 * unit), round(22 * unit)))
-    ImageDraw.Draw(label).text((0, 0), "NOTHING", 255, font)
-    canvas.paste(255, at(328, 740), label.rotate(-90, expand=True))
 
     body = Image.new("L", canvas.size)
     ImageDraw.Draw(body).rounded_rectangle(at(293, 45, 717, 955), 55 * unit, 255)
