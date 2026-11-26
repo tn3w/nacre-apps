@@ -5,6 +5,14 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.ImageDecoder
 import android.net.Uri
+import android.graphics.PointF
+import android.location.LocationListener
+import android.location.LocationManager
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.graphics.Path
+import kotlin.math.exp
 import android.provider.Settings as AndroidSettings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -204,6 +212,13 @@ private fun Viewfinder(
     var galleryItems by remember { mutableStateOf(emptyList<Media>()) }
     val session = remember { mutableStateListOf<Media>() }
     val flash = remember { Animatable(0f) }
+    var corners by remember { mutableStateOf<List<PointF>?>(null) }
+    var panoramaWidth by remember { mutableIntStateOf(-1) }
+    var burst by remember { mutableIntStateOf(0) }
+    var holding by remember { mutableStateOf(false) }
+    val panorama = remember {
+        Panorama { width -> context.mainExecutor.execute { panoramaWidth = width } }
+    }
     val emptyZoom = remember { MutableLiveData<ZoomState>() }
     val zoom by (camera.bound?.cameraInfo?.zoomState ?: emptyZoom).observeAsState()
 
@@ -214,13 +229,15 @@ private fun Viewfinder(
     LaunchedEffect(
         ready, mode, settings.front, settings.ratio, settings.effect, settings.ultraHdr,
         settings.raw, settings.resolution, settings.smooth, settings.stabilization,
-        settings.hdrVideo
+        settings.hdrVideo, settings.hold, settings.speed
     ) {
         if (!ready) return@LaunchedEffect
         val main = context.mainExecutor
         val analyzer = when (mode) {
             Mode.Scan -> Scanner { text -> main.execute { if (scanned == null) scanned = text } }
             Mode.Pro -> Histogram { bins -> main.execute { histogram = bins } }
+            Mode.Document -> DocumentFinder { found -> main.execute { corners = found } }
+            Mode.Panorama -> panorama
             else -> null
         }
         camera.bind(mode, settings, previewView.surfaceProvider, analyzer)
@@ -232,6 +249,9 @@ private fun Viewfinder(
     }
     LaunchedEffect(mode) {
         scanned = null
+        corners = null
+        panorama.active = false
+        panoramaWidth = -1
         val microphone = Manifest.permission.RECORD_AUDIO
         if (mode == Mode.Video && settings.audio && !activity.granted(microphone)) {
             requestMicrophone()
@@ -254,7 +274,72 @@ private fun Viewfinder(
         }
     }
 
+    LocationEffect(settings.location, camera)
+    ScreenFlashEffect(activity, camera.screenFlash)
+
     fun toast(text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+
+    fun saved(uri: Uri?, video: Boolean = false) {
+        if (uri == null) return toast("Couldn't save")
+        session.add(0, Media(uri, video))
+    }
+
+    fun takeDocument() {
+        val file = File(context.cacheDir, "document.jpg")
+        camera.takePhoto(settings, file) { uri ->
+            if (uri == null) return@takePhoto toast("Couldn't save")
+            scope.launch {
+                saved(withContext(Dispatchers.IO) { runCatching { Document.process(context, file) }.getOrNull() })
+            }
+        }
+    }
+
+    fun togglePanorama() {
+        if (!panorama.active) {
+            panoramaWidth = 0
+            panorama.active = true
+            return
+        }
+        panoramaWidth = -1
+        camera.worker.execute {
+            val image = panorama.finish()
+            val uri = image?.let { saveBitmap(context, it, "PANO_${stamp()}") }
+            context.mainExecutor.execute {
+                if (image == null) toast("Move the phone slowly to one side") else saved(uri)
+            }
+        }
+    }
+
+    fun shootBurst() {
+        if (!holding || burst >= 99) return
+        camera.takePhoto(settings, null, quiet = burst > 0) { uri ->
+            if (uri == null) return@takePhoto
+            burst++
+            session.add(0, Media(uri, false))
+            shootBurst()
+        }
+    }
+
+    fun holdStart() {
+        if (mode != Mode.Photo || launch.capture || timerJob != null) return
+        holding = true
+        burst = 0
+        if (settings.hold == Hold.Video) {
+            camera.record(settings, null, 0, 0) { saved(it, video = true) }
+        } else {
+            shootBurst()
+        }
+    }
+
+    fun holdEnd() {
+        if (!holding) return
+        holding = false
+        if (settings.hold == Hold.Video) camera.stopRecording()
+        scope.launch {
+            delay(1500)
+            if (!holding) burst = 0
+        }
+    }
 
     fun takePhoto() {
         scope.launch {
@@ -263,26 +348,22 @@ private fun Viewfinder(
         }
         val file = if (launch.capture) File(context.cacheDir, "capture.jpg") else null
         camera.takePhoto(settings, file) { uri ->
-            when {
-                uri == null -> toast("Couldn't save photo")
-                file != null -> review = file
-                else -> session.add(0, Media(uri, false))
-            }
+            if (file != null && uri != null) review = file else saved(uri)
         }
     }
 
     fun startVideo() {
         val target = launch.output?.let { context.contentResolver.openFileDescriptor(it, "rw") }
-        camera.record(settings.audio, target, launch.durationLimit, launch.sizeLimit) { uri ->
-            when {
-                uri == null -> toast("Couldn't save video")
-                launch.capture -> onVideo(uri)
-                else -> session.add(0, Media(uri, true))
-            }
+        camera.record(settings, target, launch.durationLimit, launch.sizeLimit) { uri ->
+            if (launch.capture && uri != null) onVideo(uri) else saved(uri, video = true)
         }
     }
 
-    fun act() = if (mode == Mode.Video) startVideo() else takePhoto()
+    fun act() = when (mode) {
+        Mode.Video -> startVideo()
+        Mode.Document -> takeDocument()
+        else -> takePhoto()
+    }
 
     fun press() {
         if (timerJob != null) {
@@ -291,7 +372,8 @@ private fun Viewfinder(
             countdown = 0
             return
         }
-        if (recording) return camera.stopRecording().let { }
+        if (camera.recording != null) return camera.stopRecording().let { }
+        if (mode == Mode.Panorama) return togglePanorama()
         val seconds = settings.timer
         if (seconds == 0) return act()
         timerJob = scope.launch {
@@ -310,7 +392,11 @@ private fun Viewfinder(
     }
     LaunchedEffect(Unit) { shutter.collect { onShutter() } }
 
-    val busy = recording || countdown > 0
+    LaunchedEffect(panoramaWidth) {
+        if (panoramaWidth >= Panorama.MAX_WIDTH) togglePanorama()
+    }
+
+    val busy = recording || countdown > 0 || panoramaWidth >= 0
     val ratio = if (mode == Mode.Video) Ratio.Wide else settings.ratio
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -366,6 +452,14 @@ private fun Viewfinder(
                     histogram?.let { HistogramView(it, Modifier.padding(12.dp)) }
                 }
                 if (mode == Mode.Scan) ScanFrame()
+                corners?.takeIf { mode == Mode.Document }?.let { DocumentOutline(it) }
+                if (panoramaWidth >= 0) {
+                    Hint(
+                        if (panoramaWidth == 0) "Move slowly to one side" else "Keep going, tap to finish",
+                        Modifier.align(Alignment.TopCenter)
+                    )
+                }
+                if (burst > 0) Hint("$burst", Modifier.align(Alignment.TopCenter))
                 if (countdown > 0) {
                     Text(
                         "$countdown",
@@ -417,7 +511,7 @@ private fun Viewfinder(
                     camera.exposure(it)
                 }
             }
-            zoom?.let { if (mode != Mode.Scan) ZoomRow(it, angle, camera::zoom) }
+            zoom?.let { if (mode != Mode.Scan) ZoomRow(it, angle, camera::zoom, camera::zoomBy) }
             if (launch.modes.size > 1 && !busy) {
                 ModeRow(launch.modes, mode) { modeState.value = it }
             }
@@ -434,11 +528,14 @@ private fun Viewfinder(
                     gallery = true
                 },
                 onShutter = ::press,
+                onHoldStart = ::holdStart,
+                onHoldEnd = ::holdEnd,
                 onPause = camera::togglePause,
                 onFlip = { Store.update { copy(front = !front) } }
             )
         }
 
+        if (camera.screenFlash) Box(Modifier.fillMaxSize().background(Color.White))
         if (sheet) SettingsSheet(capabilities) { sheet = false }
         if (gallery) {
             Gallery(
@@ -476,7 +573,7 @@ private fun TopBar(
         if (!busy) {
             when (mode) {
                 Mode.Photo -> {
-                    if (capabilities.flash) {
+                    if (capabilities.flash || capabilities.front) {
                         Control(settings.flash.label, angle, R.drawable.ic_flash, settings.flash != Flash.Off) {
                             Store.update { copy(flash = Flash.entries.after(flash)) }
                         }
@@ -503,6 +600,12 @@ private fun TopBar(
                             Store.update { copy(smooth = !smooth) }
                         }
                     }
+                    if (capabilities.speeds.size > 1) {
+                        val speed = settings.speed.takeIf { it in capabilities.speeds } ?: Speed.Normal
+                        Control(speed.label, angle, R.drawable.ic_timer, speed != Speed.Normal) {
+                            Store.update { copy(speed = capabilities.speeds.after(speed)) }
+                        }
+                    }
                     Control(if (settings.audio) "Sound" else "Muted", angle, R.drawable.ic_mic, settings.audio) {
                         Store.update { copy(audio = !audio) }
                     }
@@ -516,7 +619,8 @@ private fun TopBar(
                         }
                     }
                 }
-                Mode.Scan -> Unit
+                Mode.Document -> TimerControl(settings, angle)
+                Mode.Panorama, Mode.Scan -> Unit
             }
         }
         if (capabilities.flash) {
@@ -633,7 +737,12 @@ private fun RecordingBadge(camera: Camera, modifier: Modifier) {
 }
 
 @Composable
-private fun ZoomRow(state: ZoomState, angle: Float, onZoom: (Float) -> Unit) {
+private fun ZoomRow(
+    state: ZoomState,
+    angle: Float,
+    onZoom: (Float) -> Unit,
+    onZoomBy: (Float) -> Unit
+) {
     val presets = listOf(state.minZoomRatio, 1f, 2f, 5f, 10f)
         .filter { it >= state.minZoomRatio && it <= state.maxZoomRatio }
         .distinct()
@@ -641,7 +750,14 @@ private fun ZoomRow(state: ZoomState, angle: Float, onZoom: (Float) -> Unit) {
     val active = presets.last { it <= state.zoomRatio + 0.01f }
 
     Row(
-        Modifier.fillMaxWidth(),
+        Modifier
+            .fillMaxWidth()
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures { change, amount ->
+                    change.consume()
+                    onZoomBy(exp(amount / 400f))
+                }
+            },
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
     ) {
         presets.forEach { preset ->
@@ -671,13 +787,13 @@ private fun ZoomRow(state: ZoomState, angle: Float, onZoom: (Float) -> Unit) {
 @Composable
 private fun ModeRow(modes: List<Mode>, mode: Mode, onMode: (Mode) -> Unit) {
     Row(
-        Modifier.fillMaxWidth(),
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)
     ) {
         modes.forEach {
             val selected = it == mode
             Text(
-                it.name,
+                it.label,
                 Modifier
                     .clip(RoundedCornerShape(50))
                     .background(if (selected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
@@ -701,10 +817,15 @@ private fun ShutterRow(
     switchable: Boolean,
     onGallery: () -> Unit,
     onShutter: () -> Unit,
+    onHoldStart: () -> Unit,
+    onHoldEnd: () -> Unit,
     onPause: () -> Unit,
     onFlip: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
+    val tap by rememberUpdatedState(onShutter)
+    val holdStart by rememberUpdatedState(onHoldStart)
+    val holdEnd by rememberUpdatedState(onHoldEnd)
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 36.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -734,7 +855,17 @@ private fun ShutterRow(
                 .padding(8.dp)
                 .clip(CircleShape)
                 .background(if (mode == Mode.Scan) Color.Transparent else colors.onBackground)
-                .combinedClickable(enabled = mode != Mode.Scan, onClick = onShutter),
+                .pointerInput(mode) {
+                    if (mode == Mode.Scan) return@pointerInput
+                    detectTapGestures(
+                        onTap = { tap() },
+                        onLongPress = { holdStart() },
+                        onPress = {
+                            tryAwaitRelease()
+                            holdEnd()
+                        }
+                    )
+                },
             contentAlignment = Alignment.Center
         ) {
             val icon = when {
@@ -742,6 +873,7 @@ private fun ShutterRow(
                 recording -> R.drawable.ic_stop
                 mode == Mode.Video -> R.drawable.ic_video
                 mode == Mode.Scan -> R.drawable.ic_scan
+                mode == Mode.Panorama -> R.drawable.ic_ratio
                 else -> null
             }
             icon?.let {
@@ -801,5 +933,84 @@ private fun Review(file: File, onRetake: () -> Unit, onUse: () -> Unit) {
             Button(onUse, Modifier.weight(1f)) { Text("Use photo") }
         }
         Spacer(Modifier.height(0.dp))
+    }
+}
+
+@Composable
+private fun Hint(text: String, modifier: Modifier) {
+    Text(
+        text,
+        modifier
+            .padding(12.dp)
+            .clip(RoundedCornerShape(50))
+            .background(Color.Black.copy(alpha = 0.5f))
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        color = Color.White,
+        style = MaterialTheme.typography.labelLarge
+    )
+}
+
+@Composable
+private fun DocumentOutline(corners: List<PointF>) {
+    Canvas(Modifier.fillMaxSize()) {
+        val path = Path()
+        corners.forEachIndexed { index, point ->
+            val x = point.x * size.width
+            val y = point.y * size.height
+            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        path.close()
+        drawPath(path, Color.White.copy(alpha = 0.25f))
+        drawPath(path, Color.White, style = Stroke(6f))
+    }
+}
+
+@Composable
+private fun ScreenFlashEffect(activity: ComponentActivity, on: Boolean) {
+    DisposableEffect(on) {
+        val attributes = activity.window.attributes
+        val previous = attributes.screenBrightness
+        if (on) {
+            attributes.screenBrightness = 1f
+            activity.window.attributes = attributes
+        }
+        onDispose {
+            attributes.screenBrightness = previous
+            activity.window.attributes = attributes
+        }
+    }
+}
+
+@Composable
+private fun LocationEffect(enabled: Boolean, camera: Camera) {
+    val context = LocalContext.current
+    val permission = Manifest.permission.ACCESS_FINE_LOCATION
+    var allowed by remember {
+        mutableStateOf(context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED)
+    }
+    val request = rememberLauncherForActivityResult(RequestMultiplePermissions()) {
+        allowed = context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+        if (!allowed) Store.update { copy(location = false) }
+    }
+    LaunchedEffect(enabled) {
+        if (enabled && !allowed) {
+            request.launch(arrayOf(permission, Manifest.permission.ACCESS_COARSE_LOCATION))
+        }
+    }
+    DisposableEffect(enabled, allowed) {
+        val manager = context.getSystemService(LocationManager::class.java)
+        val listener = LocationListener { camera.location = it }
+        if (enabled && allowed) {
+            manager.allProviders
+                .filter { it != LocationManager.PASSIVE_PROVIDER && manager.isProviderEnabled(it) }
+                .forEach {
+                    camera.location = camera.location ?: manager.getLastKnownLocation(it)
+                    manager.requestLocationUpdates(it, 10_000, 0f, context.mainExecutor, listener)
+                }
+        }
+        onDispose {
+            manager.removeUpdates(listener)
+            camera.location = null
+        }
     }
 }

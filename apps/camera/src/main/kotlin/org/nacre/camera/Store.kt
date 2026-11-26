@@ -36,6 +36,10 @@ enum class Effect(val label: String, val mode: Int) {
     Bokeh("Portrait", ExtensionMode.BOKEH)
 }
 
+enum class Hold(val label: String) { Burst("Burst"), Video("Quick video") }
+
+enum class Speed(val label: String) { Normal("1×"), Lapse("Time-lapse"), Slow("Slow motion") }
+
 data class Settings(
     val flash: Flash = Flash.Off,
     val timer: Int = 0,
@@ -53,7 +57,10 @@ data class Settings(
     val smooth: Boolean = false,
     val audio: Boolean = true,
     val stabilization: Boolean = true,
-    val hdrVideo: Boolean = false
+    val hdrVideo: Boolean = false,
+    val hold: Hold = Hold.Burst,
+    val speed: Speed = Speed.Normal,
+    val location: Boolean = false
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("flash", flash.name)
@@ -73,6 +80,9 @@ data class Settings(
         .put("audio", audio)
         .put("stabilization", stabilization)
         .put("hdrVideo", hdrVideo)
+        .put("hold", hold.name)
+        .put("speed", speed.name)
+        .put("location", location)
 
     companion object {
         fun fromJson(json: JSONObject) = Settings().run {
@@ -93,7 +103,10 @@ data class Settings(
                 smooth = json.optBoolean("smooth", smooth),
                 audio = json.optBoolean("audio", audio),
                 stabilization = json.optBoolean("stabilization", stabilization),
-                hdrVideo = json.optBoolean("hdrVideo", hdrVideo)
+                hdrVideo = json.optBoolean("hdrVideo", hdrVideo),
+                hold = json.enum("hold", hold),
+                speed = json.enum("speed", speed),
+                location = json.optBoolean("location", location)
             )
         }
 

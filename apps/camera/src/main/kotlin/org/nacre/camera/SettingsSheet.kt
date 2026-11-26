@@ -40,6 +40,14 @@ fun SettingsSheet(capabilities: Capabilities, onDismiss: () -> Unit) {
             Toggle("Mirror selfies", "Saves front camera photos as previewed", settings.mirror) {
                 Store.update { copy(mirror = it) }
             }
+            Toggle(
+                "Hold shutter for quick video",
+                "Otherwise holding the shutter takes a burst",
+                settings.hold == Hold.Video
+            ) { Store.update { copy(hold = if (it) Hold.Video else Hold.Burst) } }
+            Toggle("Save location", "Adds where photos and videos were taken", settings.location) {
+                Store.update { copy(location = it) }
+            }
             Toggle("Volume keys take photos", settings.volumeKeys) {
                 Store.update { copy(volumeKeys = it) }
             }

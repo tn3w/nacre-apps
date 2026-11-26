@@ -5,16 +5,21 @@ import android.content.ContentValues
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CaptureRequest
+import android.location.Location
 import android.media.MediaActionSound
 import android.net.Uri
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.util.Range
+import android.util.Size
 import android.view.Surface
 import androidx.activity.ComponentActivity
 import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
@@ -29,11 +34,14 @@ import androidx.camera.core.Preview
 import androidx.camera.core.UseCase
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.extensions.ExtensionsManager
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.lifecycle.awaitInstance
 import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.FileDescriptorOutputOptions
+import androidx.camera.video.FileOutputOptions
+import androidx.camera.video.HighSpeedVideoSessionConfig
 import androidx.camera.video.MediaStoreOutputOptions
 import androidx.camera.video.PendingRecording
 import androidx.camera.video.Quality
@@ -52,7 +60,14 @@ import java.time.format.DateTimeFormatter
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-enum class Mode { Photo, Video, Pro, Scan }
+enum class Mode(val label: String) {
+    Photo("Photo"),
+    Video("Video"),
+    Pro("Pro"),
+    Document("Document"),
+    Panorama("Panorama"),
+    Scan("Scan")
+}
 
 enum class Balance(val label: String, val mode: Int) {
     Auto("Auto", CaptureRequest.CONTROL_AWB_MODE_AUTO),
@@ -73,6 +88,7 @@ data class Manual(
 }
 
 data class Capabilities(
+    val front: Boolean = false,
     val switchable: Boolean = false,
     val flash: Boolean = false,
     val torchLevels: Int = 0,
@@ -81,12 +97,15 @@ data class Capabilities(
     val raw: Boolean = false,
     val resolutions: List<Resolution> = emptyList(),
     val smooth: Boolean = false,
+    val slowMotion: Boolean = false,
     val stabilization: Boolean = false,
     val hdrVideo: Boolean = false,
     val isoSteps: List<Int> = emptyList(),
     val shutterSteps: List<Long> = emptyList(),
     val minFocus: Float = 0f
-)
+) {
+    val speeds get() = Speed.entries.filter { it != Speed.Slow || slowMotion }
+}
 
 private val ISO_STEPS = listOf(50, 100, 200, 400, 800, 1600, 3200, 6400, 12800)
 private val SHUTTER_STEPS = listOf(8000, 4000, 2000, 1000, 500, 250, 125, 60, 30, 15, 8, 4, 2)
@@ -98,6 +117,12 @@ private val FINISHED = setOf(
     VideoRecordEvent.Finalize.ERROR_SOURCE_INACTIVE,
     VideoRecordEvent.Finalize.ERROR_INSUFFICIENT_STORAGE
 )
+private val BITRATES = mapOf(
+    Resolution.SD to 6_000_000,
+    Resolution.HD to 14_000_000,
+    Resolution.FHD to 28_000_000,
+    Resolution.UHD to 70_000_000
+)
 
 class Camera(private val activity: ComponentActivity) {
     private var provider: ProcessCameraProvider? = null
@@ -106,9 +131,11 @@ class Camera(private val activity: ComponentActivity) {
     private var videoCapture: VideoCapture<Recorder>? = null
     private var rotation = Surface.ROTATION_0
     private val main = activity.mainExecutor
-    private val worker = Executors.newSingleThreadExecutor()
+    private val handler = Handler(Looper.getMainLooper())
     private val sound = MediaActionSound()
+    val worker = Executors.newSingleThreadExecutor()!!
 
+    var location: Location? = null
     var bound by mutableStateOf<androidx.camera.core.Camera?>(null)
         private set
     var capabilities by mutableStateOf(Capabilities())
@@ -121,6 +148,19 @@ class Camera(private val activity: ComponentActivity) {
         private set
     var torch by mutableStateOf(false)
         private set
+    var screenFlash by mutableStateOf(false)
+        private set
+
+    private val screen = object : ImageCapture.ScreenFlash {
+        override fun apply(expiration: Long, listener: ImageCapture.ScreenFlashListener) {
+            screenFlash = true
+            handler.postDelayed(listener::onCompleted, 400)
+        }
+
+        override fun clear() {
+            screenFlash = false
+        }
+    }
 
     suspend fun open() {
         val provider = ProcessCameraProvider.awaitInstance(activity)
@@ -135,7 +175,12 @@ class Camera(private val activity: ComponentActivity) {
         worker.shutdown()
     }
 
-    fun bind(mode: Mode, settings: Settings, preview: Preview.SurfaceProvider, analyzer: ImageAnalysis.Analyzer?) {
+    fun bind(
+        mode: Mode,
+        settings: Settings,
+        preview: Preview.SurfaceProvider,
+        analyzer: ImageAnalysis.Analyzer?
+    ) {
         val provider = provider ?: return
         val back = CameraSelector.DEFAULT_BACK_CAMERA
         val front = CameraSelector.DEFAULT_FRONT_CAMERA
@@ -147,14 +192,83 @@ class Camera(private val activity: ComponentActivity) {
 
         provider.unbindAll()
         bound = runCatching {
-            val useCases = useCases(mode, settings, preview, analyzer, safe = false)
-            provider.bindToLifecycle(activity, selectorFor(mode, settings, selector), *useCases)
+            bindWith(provider, mode, settings, selector, preview, analyzer, safe = false)
         }.recoverCatching {
             provider.unbindAll()
-            val useCases = useCases(mode, settings, preview, analyzer, safe = true)
-            provider.bindToLifecycle(activity, selector, *useCases)
+            bindWith(provider, mode, settings, selector, preview, analyzer, safe = true)
         }.getOrNull()
         if (torch) bound?.cameraControl?.enableTorch(true)
+        if (mode != Mode.Pro) apply(Manual())
+    }
+
+    private fun bindWith(
+        provider: ProcessCameraProvider,
+        mode: Mode,
+        settings: Settings,
+        selector: CameraSelector,
+        surface: Preview.SurfaceProvider,
+        analyzer: ImageAnalysis.Analyzer?,
+        safe: Boolean
+    ): androidx.camera.core.Camera {
+        val ratio = if (mode == Mode.Video) Ratio.Wide else settings.ratio
+        val preview = Preview.Builder().setResolutionSelector(selectorOf(ratio, false)).build()
+        preview.surfaceProvider = surface
+        imageCapture = null
+        videoCapture = null
+
+        val slow = !safe && mode == Mode.Video && settings.speed == Speed.Slow &&
+            capabilities.slowMotion
+        if (slow) {
+            val video = VideoCapture.withOutput(Recorder.Builder().build())
+            videoCapture = video
+            val session = HighSpeedVideoSessionConfig.Builder(video)
+                .setPreview(preview)
+                .setSlowMotionEnabled(true)
+                .build()
+            return provider.bindToLifecycle(activity, selector, session)
+        }
+
+        val useCases = mutableListOf<UseCase>(preview)
+        if (mode in listOf(Mode.Photo, Mode.Pro, Mode.Document)) {
+            useCases += imageCapture(mode, settings, ratio, safe).also { imageCapture = it }
+        }
+        val quickVideo = mode == Mode.Photo && settings.hold == Hold.Video && !safe
+        if (mode == Mode.Video || quickVideo) {
+            useCases += videoCapture(settings, safe).also { videoCapture = it }
+        }
+        if (analyzer != null && (!safe || mode in listOf(Mode.Scan, Mode.Panorama))) {
+            val size = if (mode == Mode.Panorama) Size(1920, 1440) else Size(1280, 960)
+            val resolution = ResolutionSelector.Builder()
+                .setResolutionStrategy(
+                    ResolutionStrategy(size, ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER)
+                )
+                .build()
+            useCases += ImageAnalysis.Builder()
+                .setResolutionSelector(resolution)
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setOutputImageFormat(
+                    if (mode == Mode.Document || mode == Mode.Panorama) {
+                        ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888
+                    } else {
+                        ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888
+                    }
+                )
+                .build()
+                .apply { setAnalyzer(worker, analyzer) }
+        }
+        val target = if (safe) selector else selectorFor(mode, settings, selector)
+        return provider.bindToLifecycle(activity, target, *useCases.toTypedArray())
+    }
+
+    private fun selectorOf(ratio: Ratio, highest: Boolean): ResolutionSelector {
+        val builder = ResolutionSelector.Builder().setAspectRatioStrategy(
+            AspectRatioStrategy(ratio.value, AspectRatioStrategy.FALLBACK_RULE_AUTO)
+        )
+        if (!highest) return builder.build()
+        return builder
+            .setResolutionStrategy(ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY)
+            .setAllowedResolutionMode(ResolutionSelector.PREFER_HIGHER_RESOLUTION_OVER_CAPTURE_RATE)
+            .build()
     }
 
     private fun selectorFor(mode: Mode, settings: Settings, selector: CameraSelector): CameraSelector {
@@ -164,45 +278,7 @@ class Camera(private val activity: ComponentActivity) {
         return extensions.getExtensionEnabledCameraSelector(selector, effect.mode)
     }
 
-    private fun useCases(
-        mode: Mode,
-        settings: Settings,
-        surface: Preview.SurfaceProvider,
-        analyzer: ImageAnalysis.Analyzer?,
-        safe: Boolean
-    ): Array<UseCase> {
-        val ratio = if (mode == Mode.Video) Ratio.Wide else settings.ratio
-        val resolution = ResolutionSelector.Builder()
-            .setAspectRatioStrategy(
-                AspectRatioStrategy(ratio.value, AspectRatioStrategy.FALLBACK_RULE_AUTO)
-            )
-            .build()
-        val preview = Preview.Builder().setResolutionSelector(resolution).build()
-        preview.surfaceProvider = surface
-        imageCapture = null
-        videoCapture = null
-
-        val output = when (mode) {
-            Mode.Photo, Mode.Pro -> imageCapture(mode, settings, resolution, safe)
-                .also { imageCapture = it }
-            Mode.Video -> videoCapture(settings, safe).also { videoCapture = it }
-            Mode.Scan -> null
-        }
-        val analysis = analyzer?.takeIf { !safe || mode == Mode.Scan }?.let {
-            ImageAnalysis.Builder()
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .build()
-                .apply { setAnalyzer(worker, it) }
-        }
-        return listOfNotNull(preview, output, analysis).toTypedArray()
-    }
-
-    private fun imageCapture(
-        mode: Mode,
-        settings: Settings,
-        resolution: ResolutionSelector,
-        safe: Boolean
-    ): ImageCapture {
+    private fun imageCapture(mode: Mode, settings: Settings, ratio: Ratio, safe: Boolean): ImageCapture {
         val format = when {
             safe -> ImageCapture.OUTPUT_FORMAT_JPEG
             mode == Mode.Pro && settings.raw && capabilities.raw ->
@@ -211,14 +287,38 @@ class Camera(private val activity: ComponentActivity) {
                 settings.effect == Effect.None -> ImageCapture.OUTPUT_FORMAT_JPEG_ULTRA_HDR
             else -> ImageCapture.OUTPUT_FORMAT_JPEG
         }
-        return ImageCapture.Builder()
-            .setResolutionSelector(resolution)
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-            .setFlashMode(settings.flash.mode)
-            .setJpegQuality(95)
+        val builder = ImageCapture.Builder()
+            .setResolutionSelector(selectorOf(ratio, highest = !safe))
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+            .setFlashMode(ImageCapture.FLASH_MODE_OFF)
+            .setJpegQuality(98)
             .setOutputFormat(format)
             .setTargetRotation(rotation)
-            .build()
+        if (!safe) {
+            Camera2Interop.Extender(builder)
+                .setCaptureRequestOption(
+                    CaptureRequest.NOISE_REDUCTION_MODE,
+                    CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY
+                )
+                .setCaptureRequestOption(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_HIGH_QUALITY)
+                .setCaptureRequestOption(
+                    CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE,
+                    CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE_HIGH_QUALITY
+                )
+                .setCaptureRequestOption(
+                    CaptureRequest.HOT_PIXEL_MODE,
+                    CaptureRequest.HOT_PIXEL_MODE_HIGH_QUALITY
+                )
+                .setCaptureRequestOption(
+                    CaptureRequest.SHADING_MODE,
+                    CaptureRequest.SHADING_MODE_HIGH_QUALITY
+                )
+                .setCaptureRequestOption(
+                    CaptureRequest.TONEMAP_MODE,
+                    CaptureRequest.TONEMAP_MODE_HIGH_QUALITY
+                )
+        }
+        return builder.build().apply { screenFlash = screen }
     }
 
     private fun videoCapture(settings: Settings, safe: Boolean): VideoCapture<Recorder> {
@@ -226,7 +326,11 @@ class Camera(private val activity: ComponentActivity) {
             settings.resolution.quality,
             FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
         )
-        val recorder = Recorder.Builder().setQualitySelector(quality).build()
+        val bitrate = BITRATES.getValue(settings.resolution) * if (settings.smooth) 3 / 2 else 1
+        val recorder = Recorder.Builder()
+            .setQualitySelector(quality)
+            .apply { if (!safe) setTargetVideoEncodingBitRate(bitrate) }
+            .build()
         val hdr = !safe && settings.hdrVideo && capabilities.hdrVideo
         return VideoCapture.Builder(recorder)
             .setMirrorMode(MirrorMode.MIRROR_MODE_ON_FRONT_ONLY)
@@ -250,6 +354,7 @@ class Camera(private val activity: ComponentActivity) {
     ): Capabilities {
         val camera2 = Camera2CameraInfo.from(info)
         val video = Recorder.getVideoCapabilities(info)
+        val highSpeed = runCatching { Recorder.getHighSpeedVideoCapabilities(info) }.getOrNull()
         val formats = ImageCapture.getImageCaptureCapabilities(info).supportedOutputFormats
         val manual = camera2.getCameraCharacteristic(
             CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES
@@ -265,6 +370,7 @@ class Camera(private val activity: ComponentActivity) {
         )?.takeIf { manual } ?: 0f
 
         return Capabilities(
+            front = info.lensFacing == CameraSelector.LENS_FACING_FRONT,
             switchable = switchable,
             flash = info.hasFlashUnit(),
             torchLevels = if (info.isTorchStrengthSupported) info.maxTorchStrengthLevel else 0,
@@ -278,6 +384,7 @@ class Camera(private val activity: ComponentActivity) {
                 video.isQualitySupported(it.quality, DynamicRange.SDR)
             },
             smooth = info.supportedFrameRateRanges.any { it.upper >= 60 },
+            slowMotion = highSpeed?.getSupportedQualities(DynamicRange.SDR)?.isNotEmpty() == true,
             stabilization = video.isStabilizationSupported,
             hdrVideo = DynamicRange.HLG_10_BIT in video.supportedDynamicRanges,
             isoSteps = ISO_STEPS.filter { iso?.contains(it) == true },
@@ -292,16 +399,21 @@ class Camera(private val activity: ComponentActivity) {
         videoCapture?.targetRotation = value
     }
 
-    fun takePhoto(settings: Settings, file: File?, onSaved: (Uri?) -> Unit) {
+    fun takePhoto(settings: Settings, file: File?, quiet: Boolean = false, onSaved: (Uri?) -> Unit) {
         val capture = imageCapture ?: return onSaved(null)
-        capture.flashMode = settings.flash.mode
-        if (settings.sound || CameraInfo.mustPlayShutterSound()) {
+        val flash = settings.flash != Flash.Off
+        capture.flashMode = when {
+            capabilities.front && flash -> ImageCapture.FLASH_MODE_SCREEN
+            capabilities.front -> ImageCapture.FLASH_MODE_OFF
+            else -> settings.flash.mode
+        }
+        if (!quiet && (settings.sound || CameraInfo.mustPlayShutterSound())) {
             sound.play(MediaActionSound.SHUTTER_CLICK)
         }
 
-        val front = bound?.cameraInfo?.lensFacing == CameraSelector.LENS_FACING_FRONT
         val metadata = ImageCapture.Metadata().apply {
-            isReversedHorizontal = front && settings.mirror
+            isReversedHorizontal = capabilities.front && settings.mirror
+            location = this@Camera.location
         }
         val name = "IMG_${stamp()}"
         val jpeg = when (file) {
@@ -310,7 +422,7 @@ class Camera(private val activity: ComponentActivity) {
         }.setMetadata(metadata).build()
         val callback = object : ImageCapture.OnImageSavedCallback {
             override fun onImageSaved(output: ImageCapture.OutputFileResults) =
-                onSaved(output.savedUri)
+                onSaved(output.savedUri ?: file?.let(Uri::fromFile))
 
             override fun onError(exception: ImageCaptureException) = onSaved(null)
         }
@@ -330,32 +442,40 @@ class Camera(private val activity: ComponentActivity) {
     )
 
     fun record(
-        audio: Boolean,
+        settings: Settings,
         target: ParcelFileDescriptor?,
         durationLimit: Long,
         sizeLimit: Long,
         onFinished: (Uri?) -> Unit
     ) {
+        if (recording != null) return
         val recorder = videoCapture?.output ?: return onFinished(null)
-        val pending = if (target != null) {
-            val options = FileDescriptorOutputOptions.Builder(target)
-                .setDurationLimitMillis(durationLimit)
-                .setFileSizeLimit(sizeLimit)
-                .build()
-            recorder.prepareRecording(activity, options)
-        } else {
-            val options = MediaStoreOutputOptions.Builder(
-                activity.contentResolver,
-                MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-            )
-                .setContentValues(mediaValues("VID_${stamp()}", "video/mp4"))
-                .setDurationLimitMillis(durationLimit)
-                .setFileSizeLimit(sizeLimit)
-                .build()
-            recorder.prepareRecording(activity, options)
+        val lapse = settings.speed == Speed.Lapse && target == null
+        val lapseFile = File(activity.cacheDir, "lapse.mp4")
+        val pending = when {
+            lapse -> recorder.prepareRecording(activity, FileOutputOptions.Builder(lapseFile).build())
+            target != null -> {
+                val options = FileDescriptorOutputOptions.Builder(target)
+                    .setDurationLimitMillis(durationLimit)
+                    .setFileSizeLimit(sizeLimit)
+                    .build()
+                recorder.prepareRecording(activity, options)
+            }
+            else -> {
+                val options = MediaStoreOutputOptions.Builder(
+                    activity.contentResolver,
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                )
+                    .setContentValues(mediaValues("VID_${stamp()}", "video/mp4"))
+                    .setDurationLimitMillis(durationLimit)
+                    .setFileSizeLimit(sizeLimit)
+                    .setLocation(location)
+                    .build()
+                recorder.prepareRecording(activity, options)
+            }
         }
         sound.play(MediaActionSound.START_VIDEO_RECORDING)
-        recording = pending.withMicrophone(audio).start(main) { event ->
+        recording = pending.withMicrophone(settings.audio && !lapse).start(main) { event ->
             when (event) {
                 is VideoRecordEvent.Status -> recorded = event.recordingStats.recordedDurationNanos
                 is VideoRecordEvent.Pause -> paused = true
@@ -366,8 +486,12 @@ class Camera(private val activity: ComponentActivity) {
                     recorded = 0
                     target?.close()
                     sound.play(MediaActionSound.STOP_VIDEO_RECORDING)
-                    val saved = event.error in FINISHED
-                    onFinished(event.outputResults.outputUri.takeIf { saved })
+                    val uri = event.outputResults.outputUri.takeIf { event.error in FINISHED }
+                    if (!lapse || uri == null) return@start onFinished(uri)
+                    worker.execute {
+                        val saved = saveTimelapse(activity, lapseFile, "VID_${stamp()}")
+                        main.execute { onFinished(saved) }
+                    }
                 }
             }
         }
@@ -397,6 +521,11 @@ class Camera(private val activity: ComponentActivity) {
         val camera = bound ?: return
         val state = camera.cameraInfo.zoomState.value ?: return
         camera.cameraControl.setZoomRatio(ratio.coerceIn(state.minZoomRatio, state.maxZoomRatio))
+    }
+
+    fun zoomBy(factor: Float) {
+        val current = bound?.cameraInfo?.zoomState?.value ?: return
+        zoom(current.zoomRatio * factor)
     }
 
     fun exposure(index: Int) = bound?.cameraControl?.setExposureCompensationIndex(index)
@@ -434,9 +563,9 @@ class Camera(private val activity: ComponentActivity) {
     }
 }
 
-private fun stamp() = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS"))
+fun stamp(): String = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS"))
 
-private fun mediaValues(name: String, mime: String) = ContentValues().apply {
+fun mediaValues(name: String, mime: String) = ContentValues().apply {
     put(MediaStore.MediaColumns.DISPLAY_NAME, name)
     put(MediaStore.MediaColumns.MIME_TYPE, mime)
     put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DCIM}/Camera")
