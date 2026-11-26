@@ -32,11 +32,6 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.graphics.drawable.toBitmap
-import java.io.File
-import java.security.MessageDigest
-import java.text.Collator
-import java.text.Normalizer
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,6 +39,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import org.nacre.core.Palette
+import java.io.File
+import java.security.MessageDigest
+import java.text.Collator
+import java.text.Normalizer
+import java.util.concurrent.ConcurrentHashMap
 
 private const val ICON_DP = 56
 private const val MENU_SHORTCUTS = 4
@@ -82,11 +82,15 @@ data class Profile(
     val hidesApps get() = quiet && type == UserManager.USER_TYPE_PROFILE_PRIVATE
 }
 
-fun key(target: String, serial: Long) = "$target#$serial"
+fun key(
+    target: String,
+    serial: Long,
+) = "$target#$serial"
 
-fun String.searchable() = Normalizer
-    .normalize(lowercase(), Normalizer.Form.NFD)
-    .replace(Regex("\\p{M}+"), "")
+fun String.searchable() =
+    Normalizer
+        .normalize(lowercase(), Normalizer.Form.NFD)
+        .replace(Regex("\\p{M}+"), "")
 
 object Apps {
     private lateinit var context: Context
@@ -102,22 +106,38 @@ object Apps {
 
     private val callback =
         object : LauncherApps.Callback() {
-            override fun onPackageRemoved(packageName: String, user: UserHandle) {
+            override fun onPackageRemoved(
+                packageName: String,
+                user: UserHandle,
+            ) {
                 Store.removePackage(packageName, serial(user))
                 changed(packageName)
             }
 
-            override fun onPackageAdded(packageName: String, user: UserHandle) {
+            override fun onPackageAdded(
+                packageName: String,
+                user: UserHandle,
+            ) {
                 changed(packageName) { found ->
-                    found
-                        .firstOrNull {
+                    val app =
+                        found.firstOrNull {
                             it.component.packageName == packageName && it.user == user
-                        }?.let(Store::addNew)
+                        }
+                    if (app == null) Store.removePackage(packageName, serial(user))
+                    app?.let(Store::addNew)
                 }
             }
 
-            override fun onPackageChanged(packageName: String, user: UserHandle) =
-                changed(packageName)
+            override fun onPackageChanged(
+                packageName: String,
+                user: UserHandle,
+            ) = changed(packageName) { found ->
+                val launchable =
+                    found.any {
+                        it.component.packageName == packageName && it.user == user
+                    }
+                if (!launchable) Store.removePackage(packageName, serial(user))
+            }
 
             override fun onPackagesAvailable(
                 packageNames: Array<out String>,
@@ -144,7 +164,10 @@ object Apps {
 
     private val profileReceiver =
         object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) = reload()
+            override fun onReceive(
+                context: Context,
+                intent: Intent,
+            ) = reload()
         }
 
     fun init(application: Context) {
@@ -163,7 +186,10 @@ object Apps {
         reload()
     }
 
-    private fun changed(vararg packages: String, then: (List<App>) -> Unit = {}) {
+    private fun changed(
+        vararg packages: String,
+        then: (List<App>) -> Unit = {},
+    ) {
         icons.keys.removeAll { key -> packages.any { key.startsWith("$it/") } }
         reload(then)
     }
@@ -214,7 +240,10 @@ object Apps {
 
     fun user(serial: Long): UserHandle? = userManager.getUserForSerialNumber(serial)
 
-    fun find(target: String, serial: Long) = apps.value.find {
+    fun find(
+        target: String,
+        serial: Long,
+    ) = apps.value.find {
         it.serial == serial && it.component.flattenToString() == target
     }
 
@@ -222,19 +251,21 @@ object Apps {
 
     fun isQuiet(serial: Long) = profile(serial)?.quiet == true
 
-    fun icon(app: App, tone: Tone? = null) =
-        cached("${app.key}|$tone|${Store.sheen.value}") {
-            if (!Store.sheen.value) {
-                return@cached render(
-                    app.info.getIcon(density()),
-                    app.user,
-                )
-            }
-            val sheen = sheen(app, tone ?: Tone.Black)
-            val drawable =
-                tone?.let { BitmapDrawable(context.resources, sheen) } ?: adaptive(sheen)
-            render(drawable, app.user)
+    fun icon(
+        app: App,
+        tone: Tone? = null,
+    ) = cached("${app.key}|$tone|${Store.sheen.value}") {
+        if (!Store.sheen.value) {
+            return@cached render(
+                app.info.getIcon(density()),
+                app.user,
+            )
         }
+        val sheen = sheen(app, tone ?: Tone.Black)
+        val drawable =
+            tone?.let { BitmapDrawable(context.resources, sheen) } ?: adaptive(sheen)
+        render(drawable, app.user)
+    }
 
     fun icon(shortcut: ShortcutInfo): ImageBitmap? {
         val target = "${shortcut.`package`}/${shortcut.id}"
@@ -246,12 +277,16 @@ object Apps {
         }
     }
 
-    private fun sheen(app: App, tone: Tone): Bitmap {
+    private fun sheen(
+        app: App,
+        tone: Tone,
+    ): Bitmap {
         val file = sheenFile(app, tone)
         BitmapFactory.decodeFile(file.path)?.let { return it }
         val custom = GLYPHS[app.component.packageName]?.let(context::getDrawable)
-        val glyph = custom?.let { AdaptiveIconDrawable(null, null, it) }
-            ?: app.info.getIcon(density())
+        val glyph =
+            custom?.let { AdaptiveIconDrawable(null, null, it) }
+                ?: app.info.getIcon(density())
         val bitmap = Sheen.render(glyph, tone)
         file.parentFile?.mkdirs()
         val partial = File(file.path + ".part")
@@ -260,23 +295,31 @@ object Apps {
         return bitmap
     }
 
-    private fun sheenFile(app: App, tone: Tone): File {
+    private fun sheenFile(
+        app: App,
+        tone: Tone,
+    ): File {
         val version = File(app.info.applicationInfo.sourceDir).lastModified()
-        val digest = MessageDigest.getInstance("SHA-256")
-            .digest("${app.key}|$tone|$version".toByteArray())
+        val digest =
+            MessageDigest
+                .getInstance("SHA-256")
+                .digest("${app.key}|$tone|$version".toByteArray())
         val name = digest.take(16).joinToString("") { "%02x".format(it) }
         return File(context.filesDir, "sheen/$name.png")
     }
 
     private fun warm(apps: List<App>) {
         if (!Store.sheen.value) return
-        val kept = apps.flatMap { app ->
-            Tone.entries.map { tone ->
-                runCatching { sheen(app, tone) }
-                sheenFile(app, tone).name
-            }
-        }.toSet()
-        File(context.filesDir, "sheen").listFiles()
+        val kept =
+            apps
+                .flatMap { app ->
+                    Tone.entries.map { tone ->
+                        runCatching { sheen(app, tone) }
+                        sheenFile(app, tone).name
+                    }
+                }.toSet()
+        File(context.filesDir, "sheen")
+            .listFiles()
             ?.filter { it.name !in kept }
             ?.forEach(File::delete)
     }
@@ -292,22 +335,29 @@ object Apps {
         return AdaptiveIconDrawable(background, BitmapDrawable(resources, layer))
     }
 
-    private fun cached(name: String, load: () -> ImageBitmap?): ImageBitmap? {
+    private fun cached(
+        name: String,
+        load: () -> ImageBitmap?,
+    ): ImageBitmap? {
         val key = "$name|${density()}"
         return icons[key] ?: runCatching(load).getOrNull()?.also { icons[key] = it }
     }
 
     private fun density() = context.resources.displayMetrics.densityDpi
 
-    private fun render(drawable: Drawable, user: UserHandle): ImageBitmap {
+    private fun render(
+        drawable: Drawable,
+        user: UserHandle,
+    ): ImageBitmap {
         val badged = context.packageManager.getUserBadgedIcon(drawable, user)
         val size = (context.resources.displayMetrics.density * ICON_DP).toInt()
         return badged.toBitmap(size, size).asImageBitmap()
     }
 
-    private fun canUseShortcuts() = runCatching {
-        launcherApps.hasShortcutHostPermission()
-    }.getOrDefault(false)
+    private fun canUseShortcuts() =
+        runCatching {
+            launcherApps.hasShortcutHostPermission()
+        }.getOrDefault(false)
 
     fun shortcuts(app: App): List<ShortcutInfo> {
         if (!canUseShortcuts()) return emptyList()
@@ -325,7 +375,11 @@ object Apps {
             .take(MENU_SHORTCUTS)
     }
 
-    fun pinned(packageName: String, id: String, serial: Long): ShortcutInfo? {
+    fun pinned(
+        packageName: String,
+        id: String,
+        serial: Long,
+    ): ShortcutInfo? {
         val user = user(serial) ?: return null
         if (!canUseShortcuts()) return null
         val query =
@@ -337,7 +391,11 @@ object Apps {
             .getOrNull()
     }
 
-    fun unpin(packageName: String, id: String, serial: Long) {
+    fun unpin(
+        packageName: String,
+        id: String,
+        serial: Long,
+    ) {
         val user = user(serial) ?: return
         if (!canUseShortcuts()) return
         val query =
@@ -355,7 +413,10 @@ object Apps {
         }
     }
 
-    private fun options(view: View, bounds: Rect) = ActivityOptions
+    private fun options(
+        view: View,
+        bounds: Rect,
+    ) = ActivityOptions
         .makeScaleUpAnimation(
             view,
             bounds.left,
@@ -364,7 +425,11 @@ object Apps {
             bounds.height(),
         ).toBundle()
 
-    fun launch(view: View, bounds: Rect, app: App) {
+    fun launch(
+        view: View,
+        bounds: Rect,
+        app: App,
+    ) {
         if (unpause(app.user)) return
         runCatching {
             launcherApps.startMainActivity(
@@ -376,7 +441,11 @@ object Apps {
         }.onFailure { toast("Can't open ${app.label}") }
     }
 
-    fun launch(view: View, bounds: Rect, shortcut: ShortcutInfo) {
+    fun launch(
+        view: View,
+        bounds: Rect,
+        shortcut: ShortcutInfo,
+    ) {
         if (unpause(shortcut.userHandle)) return
         runCatching {
             launcherApps.startShortcut(shortcut, bounds, options(view, bounds))
@@ -389,13 +458,19 @@ object Apps {
         return true
     }
 
-    fun setActive(user: UserHandle, active: Boolean) {
+    fun setActive(
+        user: UserHandle,
+        active: Boolean,
+    ) {
         runCatching { userManager.requestQuietModeEnabled(!active, user) }
             .onFailure { toast("Can't change this profile") }
         reload()
     }
 
-    fun showInfo(bounds: Rect, app: App) = runCatching {
+    fun showInfo(
+        bounds: Rect,
+        app: App,
+    ) = runCatching {
         launcherApps.startAppDetailsActivity(app.component, app.user, bounds, null)
     }
 
