@@ -31,13 +31,23 @@ fun SettingsSheet(capabilities: Capabilities, onDismiss: () -> Unit) {
         Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding()) {
             Section("Photo")
             Toggle("Grid lines", settings.grid) { Store.update { copy(grid = it) } }
-            Toggle("Level", "Shows a horizon line when you hold the phone straight", settings.level) {
+            Toggle(
+                "Level",
+                "Shows a horizon line when you hold the phone straight",
+                settings.level
+            ) {
                 Store.update { copy(level = it) }
             }
             if (!CameraInfo.mustPlayShutterSound()) {
-                Toggle("Shutter sound", settings.sound) { Store.update { copy(sound = it) } }
+                Toggle("Shutter sound", settings.sound) {
+                    Store.update { copy(sound = it) }
+                }
             }
-            Toggle("Mirror selfies", "Saves front camera photos as previewed", settings.mirror) {
+            Toggle(
+                "Mirror selfies",
+                "Saves front camera photos as previewed",
+                settings.mirror
+            ) {
                 Store.update { copy(mirror = it) }
             }
             Toggle(
@@ -45,19 +55,31 @@ fun SettingsSheet(capabilities: Capabilities, onDismiss: () -> Unit) {
                 "Otherwise holding the shutter takes a burst",
                 settings.hold == Hold.Video
             ) { Store.update { copy(hold = if (it) Hold.Video else Hold.Burst) } }
-            Toggle("Save location", "Adds where photos and videos were taken", settings.location) {
+            Toggle(
+                "Save location",
+                "Adds where photos and videos were taken",
+                settings.location
+            ) {
                 Store.update { copy(location = it) }
             }
             Toggle("Volume keys take photos", settings.volumeKeys) {
                 Store.update { copy(volumeKeys = it) }
             }
             if (capabilities.ultraHdr) {
-                Toggle("Ultra HDR", "Brighter highlights on HDR screens", settings.ultraHdr) {
+                Toggle(
+                    "Ultra HDR",
+                    "Brighter highlights on HDR screens",
+                    settings.ultraHdr
+                ) {
                     Store.update { copy(ultraHdr = it) }
                 }
             }
             if (capabilities.raw) {
-                Toggle("RAW in Pro mode", "Also saves an uncompressed DNG", settings.raw) {
+                Toggle(
+                    "RAW in Pro mode",
+                    "Also saves an uncompressed DNG",
+                    settings.raw
+                ) {
                     Store.update { copy(raw = it) }
                 }
             }
@@ -107,6 +129,9 @@ private fun Toggle(
         supportingContent = detail?.let { { Text(it) } },
         trailingContent = { Switch(checked, onChange) },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        modifier = Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(horizontal = 8.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onChange(!checked) }
+            .padding(horizontal = 8.dp)
     )
 }

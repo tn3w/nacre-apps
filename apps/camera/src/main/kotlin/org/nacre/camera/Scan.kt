@@ -59,8 +59,11 @@ class Scanner(private val onResult: (String) -> Unit) : ImageAnalysis.Analyzer {
     }
 
     private fun decode(bytes: ByteArray, width: Int, height: Int, visible: Int): String? {
-        val source = PlanarYUVLuminanceSource(bytes, width, height, 0, 0, visible, height, false)
-        return runCatching { reader.decodeWithState(BinaryBitmap(HybridBinarizer(source))).text }
+        val source =
+            PlanarYUVLuminanceSource(bytes, width, height, 0, 0, visible, height, false)
+        return runCatching {
+            reader.decodeWithState(BinaryBitmap(HybridBinarizer(source))).text
+        }
             .getOrNull()
             .also { reader.reset() }
     }
@@ -68,7 +71,9 @@ class Scanner(private val onResult: (String) -> Unit) : ImageAnalysis.Analyzer {
     private fun rotate(bytes: ByteArray, width: Int, height: Int): ByteArray {
         val rotated = ByteArray(width * height)
         for (y in 0 until height) {
-            for (x in 0 until width) rotated[x * height + height - 1 - y] = bytes[y * width + x]
+            for (x in 0 until width) {
+                rotated[x * height + height - 1 - y] = bytes[y * width + x]
+            }
         }
         return rotated
     }
@@ -77,7 +82,8 @@ class Scanner(private val onResult: (String) -> Unit) : ImageAnalysis.Analyzer {
 private data class Action(val label: String, val run: (Context) -> Unit)
 
 private fun wifiField(text: String, key: String): String? {
-    val match = Regex("""(?:^|;)$key:((?:\\.|[^;\\])*)""").find(text.removePrefix("WIFI:"))
+    val pattern = Regex("""(?:^|;)$key:((?:\\.|[^;\\])*)""")
+    val match = pattern.find(text.removePrefix("WIFI:"))
     return match?.groupValues?.get(1)?.replace(Regex("""\\(.)"""), "$1")
 }
 
@@ -92,13 +98,18 @@ private fun joinWifi(context: Context, text: String) {
     }
     val suggestion = runCatching { builder.build() }.getOrNull() ?: return
     val intent = Intent(Settings.ACTION_WIFI_ADD_NETWORKS)
-        .putParcelableArrayListExtra(Settings.EXTRA_WIFI_NETWORK_LIST, arrayListOf(suggestion))
+        .putParcelableArrayListExtra(
+            Settings.EXTRA_WIFI_NETWORK_LIST,
+            arrayListOf(suggestion)
+        )
     open(context, intent)
 }
 
 private fun open(context: Context, intent: Intent) {
     runCatching { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-        .onFailure { Toast.makeText(context, "No app can open this", Toast.LENGTH_SHORT).show() }
+        .onFailure {
+            Toast.makeText(context, "No app can open this", Toast.LENGTH_SHORT).show()
+        }
 }
 
 private fun kindOf(text: String): Pair<String, Action?> {
@@ -107,10 +118,14 @@ private fun kindOf(text: String): Pair<String, Action?> {
         Action(label) { open(it, Intent(action, Uri.parse(text))) }
 
     return when {
-        lower.startsWith("http://") || lower.startsWith("https://") -> "Link" to view("Open link")
-        lower.startsWith("wifi:") -> "Wi-Fi network" to Action("Connect") { joinWifi(it, text) }
+        lower.startsWith("http://") || lower.startsWith("https://") ->
+            "Link" to view("Open link")
+        lower.startsWith("wifi:") -> "Wi-Fi network" to Action("Connect") {
+            joinWifi(it, text)
+        }
         lower.startsWith("tel:") -> "Phone number" to view("Call", Intent.ACTION_DIAL)
-        lower.startsWith("mailto:") -> "Email" to view("Write email", Intent.ACTION_SENDTO)
+        lower.startsWith("mailto:") ->
+            "Email" to view("Write email", Intent.ACTION_SENDTO)
         lower.startsWith("smsto:") || lower.startsWith("sms:") ->
             "Message" to view("Write message", Intent.ACTION_SENDTO)
         lower.startsWith("geo:") -> "Location" to view("Show on map")
@@ -125,12 +140,17 @@ fun ScanResult(text: String, onDismiss: () -> Unit) {
     val label = if (kind == "Wi-Fi network") wifiField(text, "S") ?: text else text
 
     Card(Modifier.fillMaxWidth().padding(16.dp)) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             Text(kind, style = MaterialTheme.typography.labelLarge)
             Text(
                 label,
                 style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.verticalScroll(rememberScrollState()).weight(1f, false)
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .weight(1f, false)
             )
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -151,6 +171,8 @@ private fun copy(context: Context, text: String) {
 }
 
 private fun share(context: Context, text: String) {
-    val intent = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+    val intent = Intent(Intent.ACTION_SEND)
+        .setType("text/plain")
+        .putExtra(Intent.EXTRA_TEXT, text)
     open(context, Intent.createChooser(intent, null))
 }

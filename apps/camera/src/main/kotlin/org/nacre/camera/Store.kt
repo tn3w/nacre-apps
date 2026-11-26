@@ -38,7 +38,11 @@ enum class Effect(val label: String, val mode: Int) {
 
 enum class Hold(val label: String) { Burst("Burst"), Video("Quick video") }
 
-enum class Speed(val label: String) { Normal("1×"), Lapse("Time-lapse"), Slow("Slow motion") }
+enum class Speed(val label: String) {
+    Normal("1×"),
+    Lapse("Time-lapse"),
+    Slow("Slow motion")
+}
 
 data class Settings(
     val flash: Flash = Flash.Off,

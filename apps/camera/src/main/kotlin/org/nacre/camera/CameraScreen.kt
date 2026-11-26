@@ -1,6 +1,7 @@
 package org.nacre.camera
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.ImageDecoder
@@ -115,7 +116,7 @@ class Orientation {
 
 private fun <T> List<T>.after(item: T) = this[(indexOf(item) + 1) % size]
 
-private fun ComponentActivity.granted(permission: String) =
+private fun Context.granted(permission: String) =
     checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
 
 private fun duration(nanos: Long): String {
@@ -134,7 +135,9 @@ fun CameraApp(
     onPhoto: (File) -> Unit,
     onVideo: (Uri?) -> Unit
 ) {
-    var cameraAllowed by remember { mutableStateOf(activity.granted(Manifest.permission.CAMERA)) }
+    var cameraAllowed by remember {
+        mutableStateOf(activity.granted(Manifest.permission.CAMERA))
+    }
     val request = rememberLauncherForActivityResult(RequestMultiplePermissions()) {
         cameraAllowed = activity.granted(Manifest.permission.CAMERA)
     }
@@ -144,11 +147,14 @@ fun CameraApp(
 
     if (!cameraAllowed) {
         return PermissionScreen {
-            if (activity.shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)) {
+            val camera = Manifest.permission.CAMERA
+            if (activity.shouldShowRequestPermissionRationale(camera)) {
                 request.launch(arrayOf(Manifest.permission.CAMERA))
             } else {
                 val uri = Uri.fromParts("package", activity.packageName, null)
-                activity.startActivity(Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS, uri))
+                activity.startActivity(
+                    Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS, uri)
+                )
             }
         }
     }
@@ -160,7 +166,10 @@ fun CameraApp(
 @Composable
 private fun PermissionScreen(onAllow: () -> Unit) {
     Column(
-        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(32.dp),
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -239,7 +248,9 @@ private fun Viewfinder(
         if (!ready) return@LaunchedEffect
         val main = context.mainExecutor
         val analyzer = when (mode) {
-            Mode.Scan -> Scanner { text -> main.execute { if (scanned == null) scanned = text } }
+            Mode.Scan -> Scanner { text ->
+                main.execute { if (scanned == null) scanned = text }
+            }
             Mode.Pro -> Histogram { bins -> main.execute { histogram = bins } }
             Mode.Document -> DocumentFinder { found -> main.execute { corners = found } }
             Mode.Panorama -> panorama
@@ -314,7 +325,11 @@ private fun Viewfinder(
             val image = panorama.finish()
             val uri = image?.let { saveBitmap(context, it, "PANO_${stamp()}") }
             context.mainExecutor.execute {
-                if (image == null) toast("Move the phone slowly to one side") else saved(uri)
+                if (image == null) {
+                    toast("Move the phone slowly to one side")
+                } else {
+                    saved(uri)
+                }
             }
         }
     }
@@ -364,7 +379,9 @@ private fun Viewfinder(
     fun startVideo() {
         val output = launch.output
         val target = output?.let {
-            runCatching { context.contentResolver.openFileDescriptor(it, "rw") }.getOrNull()
+            runCatching {
+                context.contentResolver.openFileDescriptor(it, "rw")
+            }.getOrNull()
                 ?: return onVideo(null)
         }
         camera.record(settings, target, launch.durationLimit, launch.sizeLimit) { uri ->
@@ -446,7 +463,9 @@ private fun Viewfinder(
                         .fillMaxSize()
                         .pointerInput(mode, manual.focus) {
                             detectTapGestures { offset ->
-                                if (mode == Mode.Scan || manual.focus != null) return@detectTapGestures
+                                if (mode == Mode.Scan || manual.focus != null) {
+                                    return@detectTapGestures
+                                }
                                 val factory = previewView.meteringPointFactory
                                 camera.focus(factory.createPoint(offset.x, offset.y))
                                 focusPoint = offset
@@ -459,19 +478,7 @@ private fun Viewfinder(
                                 current?.let { camera.zoom(it.zoomRatio * change) }
                             }
                         }
-                        .pointerInput(busy, launch.modes) {
-                            var total = 0f
-                            detectHorizontalDragGestures(
-                                onDragStart = { total = 0f },
-                                onDragEnd = {
-                                    val modes = launch.modes
-                                    val index = modes.indexOf(modeState.value)
-                                    val step = if (total < -120) 1 else if (total > 120) -1 else 0
-                                    val next = modes.getOrNull(index + step)
-                                    if (!busy && step != 0 && next != null) modeState.value = next
-                                }
-                            ) { _, amount -> total += amount }
-                        }
+                        .modeSwipe(!busy, launch.modes, modeState)
                 )
                 if (settings.grid) Grid()
                 if (settings.level) Level(orientation.tilt)
@@ -482,10 +489,11 @@ private fun Viewfinder(
                 if (mode == Mode.Scan) ScanFrame()
                 corners?.takeIf { mode == Mode.Document }?.let { DocumentOutline(it) }
                 if (panoramaWidth >= 0) {
-                    Hint(
-                        if (panoramaWidth == 0) "Move slowly to one side" else "Keep going, tap to finish",
-                        Modifier.align(Alignment.TopCenter)
-                    )
+                    val hint = when (panoramaWidth) {
+                        0 -> "Move slowly to one side"
+                        else -> "Keep going, tap to finish"
+                    }
+                    Hint(hint, Modifier.align(Alignment.TopCenter))
                 }
                 if (burst > 0) Hint("$burst", Modifier.align(Alignment.TopCenter))
                 if (countdown > 0) {
@@ -498,9 +506,12 @@ private fun Viewfinder(
                     )
                 }
                 if (recording) RecordingBadge(camera, Modifier.align(Alignment.TopCenter))
-                Box(Modifier.fillMaxSize().background(Palette.Ink.copy(alpha = flash.value)))
+                val shade = Palette.Ink.copy(alpha = flash.value)
+                Box(Modifier.fillMaxSize().background(shade))
                 scanned?.let {
-                    Box(Modifier.align(Alignment.BottomCenter)) { ScanResult(it) { scanned = null } }
+                    Box(Modifier.align(Alignment.BottomCenter)) {
+                        ScanResult(it) { scanned = null }
+                    }
                 }
             }
         }
@@ -523,12 +534,16 @@ private fun Viewfinder(
                 }
             }
             val exposureState = camera.bound?.cameraInfo?.exposureState
-            val exposure = exposureState?.takeIf { it.isExposureCompensationSupported }?.let {
-                Exposure(ev, it.exposureCompensationRange.lower..it.exposureCompensationRange.upper, it.exposureCompensationStep.toFloat())
-            }
-            if (exposureShown && exposure != null && mode != Mode.Pro && mode != Mode.Scan) {
+            val exposure = exposureState?.takeIf { it.isExposureCompensationSupported }
+                ?.let {
+                    val range = it.exposureCompensationRange.run { lower..upper }
+                    Exposure(ev, range, it.exposureCompensationStep.toFloat())
+                }
+            val quickExposure = mode != Mode.Pro && mode != Mode.Scan
+            if (exposureShown && exposure != null && quickExposure) {
                 val range = exposure.range.toList()
-                StepSlider(range.map { "Brightness %+.1f".format(it * exposure.step) }, range.indexOf(ev)) {
+                val labels = range.map { "Brightness %+.1f".format(it * exposure.step) }
+                StepSlider(labels, range.indexOf(ev)) {
                     ev = range[it]
                     camera.exposure(ev)
                 }
@@ -539,7 +554,9 @@ private fun Viewfinder(
                     camera.exposure(it)
                 }
             }
-            zoom?.let { if (mode != Mode.Scan) ZoomRow(it, angle, camera::zoom, camera::zoomBy) }
+            zoom?.let {
+                if (mode != Mode.Scan) ZoomRow(it, angle, camera::zoom, camera::zoomBy)
+            }
             if (launch.modes.size > 1 && !busy) {
                 ModeRow(launch.modes, mode) { modeState.value = it }
             }
@@ -552,7 +569,8 @@ private fun Viewfinder(
                 thumbnail = latest.takeIf { !launch.capture },
                 switchable = capabilities.switchable,
                 onGallery = {
-                    galleryItems = if (launch.secure) session.toList() else context.ownMedia()
+                    galleryItems =
+                        if (launch.secure) session.toList() else context.ownMedia()
                     gallery = true
                 },
                 onShutter = ::press,
@@ -602,39 +620,76 @@ private fun TopBar(
             when (mode) {
                 Mode.Photo -> {
                     if (capabilities.flash || capabilities.front) {
-                        Control(settings.flash.label, angle, R.drawable.ic_flash, settings.flash != Flash.Off) {
+                        Control(
+                            settings.flash.label,
+                            angle,
+                            R.drawable.ic_flash,
+                            settings.flash != Flash.Off
+                        ) {
                             Store.update { copy(flash = Flash.entries.after(flash)) }
                         }
                     }
                     TimerControl(settings, angle)
                     RatioControl(settings, angle)
                     if (capabilities.effects.size > 1) {
-                        val effect = settings.effect.takeIf { it in capabilities.effects } ?: Effect.None
-                        Control(effect.label, angle, R.drawable.ic_camera, effect != Effect.None) {
-                            Store.update { copy(effect = capabilities.effects.after(effect)) }
+                        val effect = settings.effect.takeIf {
+                            it in capabilities.effects
+                        } ?: Effect.None
+                        Control(
+                            effect.label,
+                            angle,
+                            R.drawable.ic_camera,
+                            effect != Effect.None
+                        ) {
+                            Store.update {
+                                copy(effect = capabilities.effects.after(effect))
+                            }
                         }
                     }
                 }
                 Mode.Video -> {
                     if (capabilities.resolutions.isNotEmpty()) {
-                        val current = settings.resolution.takeIf { it in capabilities.resolutions }
+                        val current = settings.resolution.takeIf {
+                            it in capabilities.resolutions
+                        }
                             ?: capabilities.resolutions.last()
                         Control(current.label, angle, R.drawable.ic_video) {
-                            Store.update { copy(resolution = capabilities.resolutions.after(current)) }
+                            Store.update {
+                                copy(resolution = capabilities.resolutions.after(current))
+                            }
                         }
                     }
                     if (capabilities.smooth) {
-                        Control(if (settings.smooth) "60 fps" else "30 fps", angle, R.drawable.ic_play, settings.smooth) {
+                        Control(
+                            if (settings.smooth) "60 fps" else "30 fps",
+                            angle,
+                            R.drawable.ic_play,
+                            settings.smooth
+                        ) {
                             Store.update { copy(smooth = !smooth) }
                         }
                     }
                     if (capabilities.speeds.size > 1) {
-                        val speed = settings.speed.takeIf { it in capabilities.speeds } ?: Speed.Normal
-                        Control(speed.label, angle, R.drawable.ic_timer, speed != Speed.Normal) {
-                            Store.update { copy(speed = capabilities.speeds.after(speed)) }
+                        val speed = settings.speed.takeIf {
+                            it in capabilities.speeds
+                        } ?: Speed.Normal
+                        Control(
+                            speed.label,
+                            angle,
+                            R.drawable.ic_timer,
+                            speed != Speed.Normal
+                        ) {
+                            Store.update {
+                                copy(speed = capabilities.speeds.after(speed))
+                            }
                         }
                     }
-                    Control(if (settings.audio) "Sound" else "Muted", angle, R.drawable.ic_mic, settings.audio) {
+                    Control(
+                        if (settings.audio) "Sound" else "Muted",
+                        angle,
+                        R.drawable.ic_mic,
+                        settings.audio
+                    ) {
                         Store.update { copy(audio = !audio) }
                     }
                 }
@@ -642,7 +697,12 @@ private fun TopBar(
                     TimerControl(settings, angle)
                     RatioControl(settings, angle)
                     if (capabilities.raw) {
-                        Control(if (settings.raw) "RAW" else "JPEG", angle, R.drawable.ic_camera, settings.raw) {
+                        Control(
+                            if (settings.raw) "RAW" else "JPEG",
+                            angle,
+                            R.drawable.ic_camera,
+                            settings.raw
+                        ) {
                             Store.update { copy(raw = !raw) }
                         }
                     }
@@ -652,11 +712,19 @@ private fun TopBar(
             }
         }
         if (capabilities.flash) {
-            Control("Torch", angle, R.drawable.ic_torch, camera.torch, onLongClick = onTorchLevels) {
+            Control(
+                "Torch",
+                angle,
+                R.drawable.ic_torch,
+                camera.torch,
+                onLongClick = onTorchLevels
+            ) {
                 camera.torch(!camera.torch)
             }
         }
-        if (!busy) Control("Settings", angle, R.drawable.ic_settings, onClick = onSettings)
+        if (!busy) {
+            Control("Settings", angle, R.drawable.ic_settings, onClick = onSettings)
+        }
     }
 }
 
@@ -731,7 +799,10 @@ private fun Level(tilt: Float) {
 
 @Composable
 private fun FocusRing(point: Offset) {
-    Canvas(Modifier.offset { IntOffset(point.x.roundToInt() - 90, point.y.roundToInt() - 90) }.size(60.dp)) {
+    val offset = Modifier.offset {
+        IntOffset(point.x.roundToInt() - 90, point.y.roundToInt() - 90)
+    }
+    Canvas(offset.size(60.dp)) {
         drawCircle(Palette.Paper, size.minDimension / 2, style = Stroke(4f))
     }
 }
@@ -812,10 +883,30 @@ private fun ZoomRow(
     }
 }
 
+private fun Modifier.modeSwipe(
+    enabled: Boolean,
+    modes: List<Mode>,
+    mode: MutableState<Mode>
+) = pointerInput(enabled, modes) {
+    var total = 0f
+    detectHorizontalDragGestures(
+        onDragStart = { total = 0f },
+        onDragEnd = {
+            val step = if (total < -120) 1 else if (total > 120) -1 else 0
+            val next = modes.getOrNull(modes.indexOf(mode.value) + step)
+            if (enabled && step != 0 && next != null) mode.value = next
+        }
+    ) { _, amount -> total += amount }
+}
+
 @Composable
 private fun ModeRow(modes: List<Mode>, mode: Mode, onMode: (Mode) -> Unit) {
+    val colors = MaterialTheme.colorScheme
     Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)
     ) {
         modes.forEach {
@@ -824,7 +915,9 @@ private fun ModeRow(modes: List<Mode>, mode: Mode, onMode: (Mode) -> Unit) {
                 it.label,
                 Modifier
                     .clip(RoundedCornerShape(50))
-                    .background(if (selected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
+                    .background(
+                        if (selected) colors.surfaceVariant else Color.Transparent
+                    )
                     .combinedClickable { onMode(it) }
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.labelLarge,
@@ -870,7 +963,12 @@ private fun ShutterRow(
                         .combinedClickable(onClick = onGallery)
                 ) {
                     bitmap?.let {
-                        Image(it, "Gallery", Modifier.fillMaxSize().rotate(angle), contentScale = ContentScale.Crop)
+                        Image(
+                            it,
+                            "Gallery",
+                            Modifier.fillMaxSize().rotate(angle),
+                            contentScale = ContentScale.Crop
+                        )
                     }
                 }
             }
@@ -882,7 +980,9 @@ private fun ShutterRow(
                 .border(4.dp, colors.onBackground, CircleShape)
                 .padding(8.dp)
                 .clip(CircleShape)
-                .background(if (mode == Mode.Scan) Color.Transparent else colors.onBackground)
+                .background(
+                    if (mode == Mode.Scan) Color.Transparent else colors.onBackground
+                )
                 .pointerInput(mode) {
                     if (mode == Mode.Scan) return@pointerInput
                     detectTapGestures(
@@ -905,7 +1005,8 @@ private fun ShutterRow(
                 else -> null
             }
             icon?.let {
-                val tint = if (mode == Mode.Scan) colors.onBackground else colors.background
+                val scan = mode == Mode.Scan
+                val tint = if (scan) colors.onBackground else colors.background
                 Icon(painterResource(it), null, Modifier.size(28.dp), tint = tint)
             }
         }
@@ -939,7 +1040,9 @@ private fun Review(file: File, onRetake: () -> Unit, onUse: () -> Unit) {
         value = withContext(Dispatchers.IO) {
             runCatching {
                 val source = ImageDecoder.createSource(file)
-                ImageDecoder.decodeBitmap(source) { decoder, _, _ -> decoder.setTargetSampleSize(2) }
+                ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                    decoder.setTargetSampleSize(2)
+                }
                     .asImageBitmap()
             }.getOrNull()
         }
@@ -954,9 +1057,14 @@ private fun Review(file: File, onRetake: () -> Unit, onUse: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-            bitmap?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
+            bitmap?.let {
+                Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
             OutlinedButton(onRetake, Modifier.weight(1f)) { Text("Retake") }
             Button(onUse, Modifier.weight(1f)) { Text("Use photo") }
         }
@@ -1014,15 +1122,17 @@ private fun LocationEffect(enabled: Boolean, camera: Camera) {
     val context = LocalContext.current
     val permission = Manifest.permission.ACCESS_FINE_LOCATION
     var allowed by remember {
-        mutableStateOf(context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED)
+        mutableStateOf(context.granted(permission))
     }
     val request = rememberLauncherForActivityResult(RequestMultiplePermissions()) {
-        allowed = context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+        allowed = context.granted(permission)
         if (!allowed) Store.update { copy(location = false) }
     }
     LaunchedEffect(enabled) {
         if (enabled && !allowed) {
-            request.launch(arrayOf(permission, Manifest.permission.ACCESS_COARSE_LOCATION))
+            request.launch(
+                arrayOf(permission, Manifest.permission.ACCESS_COARSE_LOCATION)
+            )
         }
     }
     DisposableEffect(enabled, allowed) {
@@ -1030,10 +1140,12 @@ private fun LocationEffect(enabled: Boolean, camera: Camera) {
         val listener = LocationListener { camera.location = it }
         if (enabled && allowed) {
             manager.allProviders
-                .filter { it != LocationManager.PASSIVE_PROVIDER && manager.isProviderEnabled(it) }
+                .filter { it != LocationManager.PASSIVE_PROVIDER }
+                .filter(manager::isProviderEnabled)
                 .forEach {
                     camera.location = camera.location ?: manager.getLastKnownLocation(it)
-                    manager.requestLocationUpdates(it, 10_000, 0f, context.mainExecutor, listener)
+                    val executor = context.mainExecutor
+                    manager.requestLocationUpdates(it, 10_000, 0f, executor, listener)
                 }
         }
         onDispose {

@@ -26,12 +26,26 @@ import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.sign
 
-private fun Context.insert(collection: Uri, name: String, mime: String, write: (Uri) -> Unit): Uri? {
-    val values = mediaValues(name, mime).apply { put(MediaStore.MediaColumns.IS_PENDING, 1) }
+private fun Context.insert(
+    collection: Uri,
+    name: String,
+    mime: String,
+    write: (Uri) -> Unit
+): Uri? {
+    val values = mediaValues(name, mime).apply {
+        put(MediaStore.MediaColumns.IS_PENDING, 1)
+    }
     val uri = contentResolver.insert(collection, values) ?: return null
     return runCatching {
         write(uri)
-        contentResolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+        contentResolver.update(
+            uri,
+            ContentValues().apply {
+                put(MediaStore.MediaColumns.IS_PENDING, 0)
+            },
+            null,
+            null
+        )
         uri
     }.getOrElse {
         contentResolver.delete(uri, null, null)
@@ -39,16 +53,25 @@ private fun Context.insert(collection: Uri, name: String, mime: String, write: (
     }
 }
 
-fun saveBitmap(context: Context, bitmap: Bitmap, name: String): Uri? =
-    context.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, name, "image/jpeg") { uri ->
-        context.contentResolver.openOutputStream(uri)!!.use {
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it)
-        }
+fun saveBitmap(context: Context, bitmap: Bitmap, name: String): Uri? = context.insert(
+    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+    name,
+    "image/jpeg"
+) { uri ->
+    context.contentResolver.openOutputStream(uri)!!.use {
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it)
     }
+}
 
 fun saveTimelapse(context: Context, source: File, name: String): Uri? {
-    val uri = context.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, name, "video/mp4") { uri ->
-        context.contentResolver.openFileDescriptor(uri, "w")!!.use { remux(source, it.fileDescriptor) }
+    val uri = context.insert(
+        MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+        name,
+        "video/mp4"
+    ) { uri ->
+        context.contentResolver.openFileDescriptor(uri, "w")!!.use {
+            remux(source, it.fileDescriptor)
+        }
     }
     source.delete()
     return uri
@@ -74,7 +97,11 @@ private fun remux(source: File, target: FileDescriptor) {
     }
 }
 
-private fun copyKeyFrames(extractor: MediaExtractor, muxer: MediaMuxer, format: MediaFormat) {
+private fun copyKeyFrames(
+    extractor: MediaExtractor,
+    muxer: MediaMuxer,
+    format: MediaFormat
+) {
     if (format.containsKey(MediaFormat.KEY_ROTATION)) {
         muxer.setOrientationHint(format.getInteger(MediaFormat.KEY_ROTATION))
     }
@@ -103,23 +130,31 @@ fun ImageProxy.uprightBitmap(): Bitmap {
     return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
 }
 
-private fun luma(pixel: Int) =
-    ((pixel shr 16 and 0xFF) * 299 + (pixel shr 8 and 0xFF) * 587 + (pixel and 0xFF) * 114) / 1000
+private fun luma(pixel: Int): Int {
+    val red = pixel shr 16 and 0xFF
+    val green = pixel shr 8 and 0xFF
+    val blue = pixel and 0xFF
+    return (red * 299 + green * 587 + blue * 114) / 1000
+}
 
 object Document {
     private const val SIZE = 200
+    private val FULL_PAGE =
+        listOf(PointF(0f, 0f), PointF(1f, 0f), PointF(1f, 1f), PointF(0f, 1f))
 
     fun find(bitmap: Bitmap): List<PointF>? {
         val scale = SIZE.toFloat() / max(bitmap.width, bitmap.height)
         val width = (bitmap.width * scale).toInt().coerceAtLeast(1)
         val height = (bitmap.height * scale).toInt().coerceAtLeast(1)
         val small = Bitmap.createScaledBitmap(bitmap, width, height, true)
-        val pixels = IntArray(width * height).also { small.getPixels(it, 0, width, 0, 0, width, height) }
+        val pixels = IntArray(width * height).also {
+            small.getPixels(it, 0, width, 0, 0, width, height)
+        }
         val gray = IntArray(pixels.size) { luma(pixels[it]) }
         val threshold = otsu(gray)
         val mask = BooleanArray(gray.size) { gray[it] > threshold }
         val region = largest(mask, width, height)
-        if (region.size < gray.size / 10 || region.size > gray.size * 95 / 100) return null
+        if (region.size !in gray.size / 10..gray.size * 95 / 100) return null
 
         val corners = listOf(
             region.minBy { it % width + it / width },
@@ -127,7 +162,9 @@ object Document {
             region.maxBy { it % width + it / width },
             region.minBy { it % width - it / width }
         )
-        return corners.map { PointF((it % width + 0.5f) / width, (it / width + 0.5f) / height) }
+        return corners.map {
+            PointF((it % width + 0.5f) / width, (it / width + 0.5f) / height)
+        }
     }
 
     fun crop(source: Bitmap, corners: List<PointF>): Bitmap {
@@ -138,8 +175,14 @@ object Document {
         val matrix = Matrix()
         matrix.setPolyToPoly(
             floatArrayOf(
-                topLeft.x, topLeft.y, topRight.x, topRight.y,
-                bottomRight.x, bottomRight.y, bottomLeft.x, bottomLeft.y
+                topLeft.x,
+                topLeft.y,
+                topRight.x,
+                topRight.y,
+                bottomRight.x,
+                bottomRight.y,
+                bottomLeft.x,
+                bottomLeft.y
             ),
             0,
             floatArrayOf(0f, 0f, width, 0f, width, height, 0f, height),
@@ -158,21 +201,26 @@ object Document {
         )
         val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
         paint.colorFilter = ColorMatrixColorFilter(enhance)
-        val output = Bitmap.createBitmap(width.toInt().coerceAtLeast(1), height.toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+        val output = Bitmap.createBitmap(
+            width.toInt().coerceAtLeast(1),
+            height.toInt().coerceAtLeast(1),
+            Bitmap.Config.ARGB_8888
+        )
         Canvas(output).drawBitmap(source, matrix, paint)
         return output
     }
 
     fun process(context: Context, file: File): Uri? {
-        val source = ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, _, _ ->
+        val source = ImageDecoder.createSource(file)
+        val bitmap = ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
             decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
         }
-        file.delete()
-        val corners = find(source) ?: listOf(PointF(0f, 0f), PointF(1f, 0f), PointF(1f, 1f), PointF(0f, 1f))
-        return saveBitmap(context, crop(source, corners), "DOC_${stamp()}")
+        val page = crop(bitmap, find(bitmap) ?: FULL_PAGE)
+        return saveBitmap(context, page, "DOC_${stamp()}")
     }
 
-    private fun distance(first: PointF, second: PointF) = hypot(first.x - second.x, first.y - second.y)
+    private fun distance(first: PointF, second: PointF) =
+        hypot(first.x - second.x, first.y - second.y)
 
     private fun otsu(gray: IntArray): Int {
         val histogram = IntArray(256).also { counts -> gray.forEach { counts[it]++ } }
@@ -188,7 +236,8 @@ object Document {
             background += level.toLong() * histogram[level]
             val meanBack = background.toDouble() / weight
             val meanFore = (sum - background).toDouble() / (total - weight)
-            val variance = weight.toDouble() * (total - weight) * (meanBack - meanFore) * (meanBack - meanFore)
+            val difference = meanBack - meanFore
+            val variance = weight.toDouble() * (total - weight) * difference * difference
             if (variance > best) {
                 best = variance
                 threshold = level
@@ -208,7 +257,13 @@ object Document {
         return best
     }
 
-    private fun fill(start: Int, mask: BooleanArray, seen: BooleanArray, width: Int, height: Int): List<Int> {
+    private fun fill(
+        start: Int,
+        mask: BooleanArray,
+        seen: BooleanArray,
+        width: Int,
+        height: Int
+    ): List<Int> {
         val region = ArrayList<Int>()
         val stack = ArrayDeque<Int>().apply { add(start) }
         seen[start] = true
@@ -231,7 +286,8 @@ object Document {
     }
 }
 
-class DocumentFinder(private val onCorners: (List<PointF>?) -> Unit) : ImageAnalysis.Analyzer {
+class DocumentFinder(private val onCorners: (List<PointF>?) -> Unit) :
+    ImageAnalysis.Analyzer {
     private var last = 0L
 
     override fun analyze(image: ImageProxy) = image.use {
@@ -275,7 +331,13 @@ class Panorama(private val onProgress: (Int) -> Unit) : ImageAnalysis.Analyzer {
             pending = 0f
             return@use
         }
-        val bitmap = Bitmap.createBitmap(frame, (frame.width - strip) / 2, 0, strip, frame.height)
+        val bitmap = Bitmap.createBitmap(
+            frame,
+            (frame.width - strip) / 2,
+            0,
+            strip,
+            frame.height
+        )
         strips += Strip(bitmap, top.toInt())
         pending -= strip * direction
         width += strip
@@ -316,8 +378,12 @@ class Panorama(private val onProgress: (Int) -> Unit) : ImageAnalysis.Analyzer {
         val rows = height / 5 until height * 4 / 5
         val columns = PROFILE / 5 until PROFILE * 4 / 5
         return Profiles(
-            FloatArray(PROFILE) { x -> rows.sumOf { gray[it * PROFILE + x] }.toFloat() / rows.count() },
-            FloatArray(height) { y -> columns.sumOf { gray[y * PROFILE + it] }.toFloat() / columns.count() }
+            FloatArray(PROFILE) { x ->
+                rows.sumOf { gray[it * PROFILE + x] }.toFloat() / rows.count()
+            },
+            FloatArray(height) { y ->
+                columns.sumOf { gray[y * PROFILE + it] }.toFloat() / columns.count()
+            }
         )
     }
 

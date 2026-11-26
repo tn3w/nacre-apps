@@ -109,8 +109,9 @@ data class Capabilities(
 }
 
 private val ISO_STEPS = listOf(50, 100, 200, 400, 800, 1600, 3200, 6400, 12800)
-private val SHUTTER_STEPS = listOf(8000, 4000, 2000, 1000, 500, 250, 125, 60, 30, 15, 8, 4, 2)
-    .map { 1_000_000_000L / it } + 1_000_000_000L
+private val SHUTTER_STEPS =
+    listOf(8000, 4000, 2000, 1000, 500, 250, 125, 60, 30, 15, 8, 4, 2)
+        .map { 1_000_000_000L / it } + 1_000_000_000L
 private val FINISHED = setOf(
     VideoRecordEvent.Finalize.ERROR_NONE,
     VideoRecordEvent.Finalize.ERROR_FILE_SIZE_LIMIT_REACHED,
@@ -166,7 +167,9 @@ class Camera(private val activity: ComponentActivity) {
 
     suspend fun open() {
         val provider = ProcessCameraProvider.awaitInstance(activity)
-        extensions = runCatching { ExtensionsManager.getInstance(activity, provider) }.getOrNull()
+        extensions = runCatching {
+            ExtensionsManager.getInstance(activity, provider)
+        }.getOrNull()
         this.provider = provider
     }
 
@@ -191,7 +194,11 @@ class Camera(private val activity: ComponentActivity) {
         val hasFront = provider.hasCamera(front)
         if (!hasBack && !hasFront) return
         val selector = if (settings.front && hasFront || !hasBack) front else back
-        capabilities = capabilitiesOf(provider.getCameraInfo(selector), selector, hasBack && hasFront)
+        capabilities = capabilitiesOf(
+            provider.getCameraInfo(selector),
+            selector,
+            hasBack && hasFront
+        )
 
         provider.unbindAll()
         bound = runCatching {
@@ -214,7 +221,9 @@ class Camera(private val activity: ComponentActivity) {
         safe: Boolean
     ): androidx.camera.core.Camera {
         val ratio = if (mode == Mode.Video) Ratio.Wide else settings.ratio
-        val preview = Preview.Builder().setResolutionSelector(selectorOf(ratio, false)).build()
+        val preview = Preview.Builder()
+            .setResolutionSelector(selectorOf(ratio, highest = false))
+            .build()
         preview.surfaceProvider = surface
         imageCapture = null
         videoCapture = null
@@ -233,7 +242,9 @@ class Camera(private val activity: ComponentActivity) {
 
         val useCases = mutableListOf<UseCase>(preview)
         if (mode in listOf(Mode.Photo, Mode.Pro, Mode.Document)) {
-            useCases += imageCapture(mode, settings, ratio, safe).also { imageCapture = it }
+            useCases += imageCapture(mode, settings, ratio, safe).also {
+                imageCapture = it
+            }
         }
         val quickVideo = mode == Mode.Photo && settings.hold == Hold.Video && !safe
         if (mode == Mode.Video || quickVideo) {
@@ -243,7 +254,10 @@ class Camera(private val activity: ComponentActivity) {
             val size = if (mode == Mode.Panorama) Size(1920, 1440) else Size(1280, 960)
             val resolution = ResolutionSelector.Builder()
                 .setResolutionStrategy(
-                    ResolutionStrategy(size, ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER)
+                    ResolutionStrategy(
+                        size,
+                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER
+                    )
                 )
                 .build()
             useCases += ImageAnalysis.Builder()
@@ -270,24 +284,38 @@ class Camera(private val activity: ComponentActivity) {
         if (!highest) return builder.build()
         return builder
             .setResolutionStrategy(ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY)
-            .setAllowedResolutionMode(ResolutionSelector.PREFER_HIGHER_RESOLUTION_OVER_CAPTURE_RATE)
+            .setAllowedResolutionMode(
+                ResolutionSelector.PREFER_HIGHER_RESOLUTION_OVER_CAPTURE_RATE
+            )
             .build()
     }
 
-    private fun selectorFor(mode: Mode, settings: Settings, selector: CameraSelector): CameraSelector {
+    private fun selectorFor(
+        mode: Mode,
+        settings: Settings,
+        selector: CameraSelector
+    ): CameraSelector {
         val extensions = extensions ?: return selector
-        val effect = settings.effect.takeIf { mode == Mode.Photo && it in capabilities.effects }
+        val effect = settings.effect.takeIf {
+            mode == Mode.Photo && it in capabilities.effects
+        }
         if (effect == null || effect == Effect.None) return selector
         return extensions.getExtensionEnabledCameraSelector(selector, effect.mode)
     }
 
-    private fun imageCapture(mode: Mode, settings: Settings, ratio: Ratio, safe: Boolean): ImageCapture {
+    private fun imageCapture(
+        mode: Mode,
+        settings: Settings,
+        ratio: Ratio,
+        safe: Boolean
+    ): ImageCapture {
         val format = when {
             safe -> ImageCapture.OUTPUT_FORMAT_JPEG
             mode == Mode.Pro && settings.raw && capabilities.raw ->
                 ImageCapture.OUTPUT_FORMAT_RAW_JPEG
             mode == Mode.Photo && settings.ultraHdr && capabilities.ultraHdr &&
-                settings.effect == Effect.None -> ImageCapture.OUTPUT_FORMAT_JPEG_ULTRA_HDR
+                settings.effect == Effect.None ->
+                ImageCapture.OUTPUT_FORMAT_JPEG_ULTRA_HDR
             else -> ImageCapture.OUTPUT_FORMAT_JPEG
         }
         val builder = ImageCapture.Builder()
@@ -303,7 +331,10 @@ class Camera(private val activity: ComponentActivity) {
                     CaptureRequest.NOISE_REDUCTION_MODE,
                     CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY
                 )
-                .setCaptureRequestOption(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_HIGH_QUALITY)
+                .setCaptureRequestOption(
+                    CaptureRequest.EDGE_MODE,
+                    CaptureRequest.EDGE_MODE_HIGH_QUALITY
+                )
                 .setCaptureRequestOption(
                     CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE,
                     CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE_HIGH_QUALITY
@@ -329,7 +360,8 @@ class Camera(private val activity: ComponentActivity) {
             settings.resolution.quality,
             FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
         )
-        val bitrate = BITRATES.getValue(settings.resolution) * if (settings.smooth) 3 / 2 else 1
+        val baseRate = BITRATES.getValue(settings.resolution)
+        val bitrate = if (settings.smooth) baseRate * 3 / 2 else baseRate
         val recorder = Recorder.Builder()
             .setQualitySelector(quality)
             .apply { if (!safe) setTargetVideoEncodingBitRate(bitrate) }
@@ -357,11 +389,16 @@ class Camera(private val activity: ComponentActivity) {
     ): Capabilities {
         val camera2 = Camera2CameraInfo.from(info)
         val video = Recorder.getVideoCapabilities(info)
-        val highSpeed = runCatching { Recorder.getHighSpeedVideoCapabilities(info) }.getOrNull()
-        val formats = ImageCapture.getImageCaptureCapabilities(info).supportedOutputFormats
+        val highSpeed = runCatching {
+            Recorder.getHighSpeedVideoCapabilities(info)
+        }.getOrNull()
+        val formats = ImageCapture.getImageCaptureCapabilities(info)
+            .supportedOutputFormats
         val manual = camera2.getCameraCharacteristic(
             CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES
-        )?.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR) == true
+        )?.contains(
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR
+        ) == true
         val iso = camera2.getCameraCharacteristic(
             CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE
         )?.takeIf { manual }
@@ -376,7 +413,11 @@ class Camera(private val activity: ComponentActivity) {
             front = info.lensFacing == CameraSelector.LENS_FACING_FRONT,
             switchable = switchable,
             flash = info.hasFlashUnit(),
-            torchLevels = if (info.isTorchStrengthSupported) info.maxTorchStrengthLevel else 0,
+            torchLevels = if (info.isTorchStrengthSupported) {
+                info.maxTorchStrengthLevel
+            } else {
+                0
+            },
             effects = Effect.entries.filter {
                 it == Effect.None ||
                     extensions?.isExtensionAvailable(selector, it.mode) == true
@@ -387,7 +428,9 @@ class Camera(private val activity: ComponentActivity) {
                 video.isQualitySupported(it.quality, DynamicRange.SDR)
             },
             smooth = info.supportedFrameRateRanges.any { it.upper >= 60 },
-            slowMotion = highSpeed?.getSupportedQualities(DynamicRange.SDR)?.isNotEmpty() == true,
+            slowMotion = highSpeed?.getSupportedQualities(DynamicRange.SDR)
+                .orEmpty()
+                .isNotEmpty(),
             stabilization = video.isStabilizationSupported,
             hdrVideo = DynamicRange.HLG_10_BIT in video.supportedDynamicRanges,
             isoSteps = ISO_STEPS.filter { iso?.contains(it) == true },
@@ -402,7 +445,12 @@ class Camera(private val activity: ComponentActivity) {
         videoCapture?.targetRotation = value
     }
 
-    fun takePhoto(settings: Settings, file: File?, quiet: Boolean = false, onSaved: (Uri?) -> Unit) {
+    fun takePhoto(
+        settings: Settings,
+        file: File?,
+        quiet: Boolean = false,
+        onSaved: (Uri?) -> Unit
+    ) {
         val capture = imageCapture ?: return onSaved(null)
         val flash = settings.flash != Flash.Off
         capture.flashMode = when {
@@ -431,18 +479,21 @@ class Camera(private val activity: ComponentActivity) {
         }
 
         if (capture.outputFormat == ImageCapture.OUTPUT_FORMAT_RAW_JPEG && file == null) {
-            val raw = mediaOptions(name, "image/x-adobe-dng").setMetadata(metadata).build()
+            val raw = mediaOptions(name, "image/x-adobe-dng")
+                .setMetadata(metadata)
+                .build()
             capture.takePicture(raw, jpeg, main, callback)
         } else {
             capture.takePicture(jpeg, main, callback)
         }
     }
 
-    private fun mediaOptions(name: String, mime: String) = ImageCapture.OutputFileOptions.Builder(
-        activity.contentResolver,
-        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-        mediaValues(name, mime)
-    )
+    private fun mediaOptions(name: String, mime: String) =
+        ImageCapture.OutputFileOptions.Builder(
+            activity.contentResolver,
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            mediaValues(name, mime)
+        )
 
     fun record(
         settings: Settings,
@@ -459,7 +510,10 @@ class Camera(private val activity: ComponentActivity) {
         val lapse = settings.speed == Speed.Lapse && target == null
         val lapseFile = File(activity.cacheDir, "lapse.mp4")
         val pending = when {
-            lapse -> recorder.prepareRecording(activity, FileOutputOptions.Builder(lapseFile).build())
+            lapse -> recorder.prepareRecording(
+                activity,
+                FileOutputOptions.Builder(lapseFile).build()
+            )
             target != null -> {
                 val options = FileDescriptorOutputOptions.Builder(target)
                     .setDurationLimitMillis(durationLimit)
@@ -541,7 +595,9 @@ class Camera(private val activity: ComponentActivity) {
     fun zoom(ratio: Float) {
         val camera = bound ?: return
         val state = camera.cameraInfo.zoomState.value ?: return
-        camera.cameraControl.setZoomRatio(ratio.coerceIn(state.minZoomRatio, state.maxZoomRatio))
+        camera.cameraControl.setZoomRatio(
+            ratio.coerceIn(state.minZoomRatio, state.maxZoomRatio)
+        )
     }
 
     fun zoomBy(factor: Float) {
@@ -576,15 +632,21 @@ class Camera(private val activity: ComponentActivity) {
             }
             set(CaptureRequest.CONTROL_AWB_MODE, manual.balance.mode)
         }.build()
-        runCatching { Camera2CameraControl.from(control).setCaptureRequestOptions(options) }
+        runCatching {
+            Camera2CameraControl.from(control).setCaptureRequestOptions(options)
+        }
     }
 
-    private fun <T : Any> CaptureRequestOptions.Builder.set(key: CaptureRequest.Key<T>, value: T) {
+    private fun <T : Any> CaptureRequestOptions.Builder.set(
+        key: CaptureRequest.Key<T>,
+        value: T
+    ) {
         setCaptureRequestOption(key, value)
     }
 }
 
-fun stamp(): String = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS"))
+fun stamp(): String =
+    LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS"))
 
 fun mediaValues(name: String, mime: String) = ContentValues().apply {
     put(MediaStore.MediaColumns.DISPLAY_NAME, name)

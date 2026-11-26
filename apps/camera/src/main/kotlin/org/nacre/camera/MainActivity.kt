@@ -63,8 +63,14 @@ open class MainActivity : ComponentActivity() {
             NacreTheme {
                 Surface {
                     CameraApp(
-                        this, camera, launch, mode, orientation, shutter,
-                        ::deliverPhoto, ::deliverVideo
+                        this,
+                        camera,
+                        launch,
+                        mode,
+                        orientation,
+                        shutter,
+                        ::deliverPhoto,
+                        ::deliverVideo
                     )
                 }
             }
@@ -103,7 +109,8 @@ open class MainActivity : ComponentActivity() {
     private fun isShutterKey(keyCode: Int): Boolean {
         val volume = keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
             keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
-        return keyCode == KeyEvent.KEYCODE_CAMERA || volume && Store.settings.value.volumeKeys
+        val volumeShutter = volume && Store.settings.value.volumeKeys
+        return keyCode == KeyEvent.KEYCODE_CAMERA || volumeShutter
     }
 
     private fun orientationListener() = object : OrientationEventListener(this) {
@@ -175,27 +182,28 @@ open class MainActivity : ComponentActivity() {
     private fun deliverPhoto(file: File) {
         val output = launch.output
         val result = runCatching {
-            if (output != null) {
-                contentResolver.openOutputStream(output, "wt")!!.use { stream ->
-                    file.inputStream().use { it.copyTo(stream) }
-                }
-                Intent()
-            } else {
-                val bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
-                    val scale = 512f / maxOf(info.size.width, info.size.height)
-                    if (scale < 1) {
-                        decoder.setTargetSize(
-                            (info.size.width * scale).toInt(),
-                            (info.size.height * scale).toInt()
-                        )
-                    }
-                }
-                Intent("inline-data").putExtra("data", bitmap)
+            if (output == null) return@runCatching inlineThumbnail(file)
+            contentResolver.openOutputStream(output, "wt")!!.use { stream ->
+                file.inputStream().use { it.copyTo(stream) }
             }
+            Intent()
         }
         file.delete()
-        result.onSuccess { setResult(RESULT_OK, it) }.onFailure { setResult(RESULT_CANCELED) }
+        val code = if (result.isSuccess) RESULT_OK else RESULT_CANCELED
+        setResult(code, result.getOrNull())
         finish()
+    }
+
+    private fun inlineThumbnail(file: File): Intent {
+        val source = ImageDecoder.createSource(file)
+        val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+            val scale = 512f / maxOf(info.size.width, info.size.height)
+            if (scale < 1) {
+                val width = (info.size.width * scale).toInt()
+                decoder.setTargetSize(width, (info.size.height * scale).toInt())
+            }
+        }
+        return Intent("inline-data").putExtra("data", bitmap)
     }
 }
 

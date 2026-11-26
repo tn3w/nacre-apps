@@ -79,7 +79,10 @@ fun StepSlider(labels: List<String>, index: Int, onIndex: (Int) -> Unit) {
         Modifier.fillMaxWidth().padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(labels[index.coerceIn(labels.indices)], style = MaterialTheme.typography.titleSmall)
+        Text(
+            labels[index.coerceIn(labels.indices)],
+            style = MaterialTheme.typography.titleSmall
+        )
         Slider(
             value = index.toFloat(),
             onValueChange = { onIndex(it.roundToInt()) },
@@ -98,7 +101,9 @@ private enum class Dial(val label: String) {
 }
 
 fun shutterLabel(nanos: Long) =
-    if (nanos >= 1_000_000_000L) "${nanos / 1_000_000_000L}s" else "1/${1_000_000_000L / nanos}"
+    if (nanos >= SECOND) "${nanos / SECOND}s" else "1/${SECOND / nanos}"
+
+private const val SECOND = 1_000_000_000L
 
 private fun focusLabel(diopters: Float) =
     if (diopters <= 0f) "∞" else "%.2f m".format(1f / diopters)
@@ -142,17 +147,25 @@ fun ProControls(
             Dial.Shutter -> StepSlider(
                 listOf("Auto") + capabilities.shutterSteps.map(::shutterLabel),
                 capabilities.shutterSteps.indexOf(manual.shutter) + 1
-            ) { onManual(manual.copy(shutter = capabilities.shutterSteps.getOrNull(it - 1))) }
+            ) {
+                onManual(
+                    manual.copy(shutter = capabilities.shutterSteps.getOrNull(it - 1))
+                )
+            }
             Dial.Focus -> StepSlider(
                 listOf("Auto") + focusSteps.map(::focusLabel),
                 focusSteps.indexOf(manual.focus) + 1
             ) { onManual(manual.copy(focus = focusSteps.getOrNull(it - 1))) }
-            Dial.Balance -> StepSlider(Balance.entries.map { it.label }, manual.balance.ordinal) {
+            Dial.Balance -> StepSlider(
+                Balance.entries.map { it.label },
+                manual.balance.ordinal
+            ) {
                 onManual(manual.copy(balance = Balance.entries[it]))
             }
             Dial.Exposure -> exposure?.let { state ->
                 val range = state.range.toList()
-                StepSlider(range.map { evLabel(it, state.step) }, range.indexOf(state.index)) {
+                val labels = range.map { evLabel(it, state.step) }
+                StepSlider(labels, range.indexOf(state.index)) {
                     onExposure(range[it])
                 }
             }
@@ -164,7 +177,8 @@ fun ProControls(
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+            horizontalArrangement =
+                Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
         ) {
             available.forEach {
                 FilterChip(

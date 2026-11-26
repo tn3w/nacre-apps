@@ -126,7 +126,11 @@ fun Gallery(
             key = { items[it].uri }
         ) { page ->
             val media = items[page]
-            if (media.video) VideoPage(media.uri) else PhotoPage(media.uri) { zoomed = it }
+            if (media.video) {
+                VideoPage(media.uri)
+            } else {
+                PhotoPage(media.uri) { zoomed = it }
+            }
         }
 
         Row(
@@ -141,7 +145,9 @@ fun Gallery(
                 style = MaterialTheme.typography.labelLarge
             )
             if (current == null) return@Row
-            if (!secure) GalleryButton(R.drawable.ic_share, "Share") { share(context, current) }
+            if (!secure) {
+                GalleryButton(R.drawable.ic_share, "Share") { share(context, current) }
+            }
             GalleryButton(R.drawable.ic_delete, "Delete") {
                 runCatching { context.contentResolver.delete(current.uri, null, null) }
                 onDelete(current)
@@ -154,7 +160,9 @@ fun Gallery(
 private fun GalleryButton(icon: Int, label: String, onClick: () -> Unit) {
     IconButton(
         onClick,
-        Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.background.copy(0.6f))
+        Modifier
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.background.copy(0.6f))
     ) {
         Icon(painterResource(icon), label)
     }
