@@ -112,6 +112,24 @@ Minimal, private system apps for a GrapheneOS-like Android ROM. No Google, no ne
 
 <br>
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/camera/readme/badge-dark.png">
+    <img src="apps/camera/readme/badge-light.png" width="206" alt="Camera">
+  </picture>
+</p>
+
+<p align="center">Full-resolution camera with Pro manual controls, RAW, 4K and time-lapse video, document, panorama and QR scanning.</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/camera/readme/screens-dark.png">
+    <img src="apps/camera/readme/screens-light.png" alt="Camera screens">
+  </picture>
+</p>
+
+<br>
+
 <p align="center"><b>Wallpapers</b></p>
 
 <p align="center">Liquid-chrome diffraction, contour and nacre wallpapers for light and dark mode in the icon sheen style, made by <code>scripts/wallpaper.py</code>.</p>
