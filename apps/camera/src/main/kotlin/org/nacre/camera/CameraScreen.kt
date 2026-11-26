@@ -12,6 +12,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.Path
+import org.nacre.core.Palette
 import kotlin.math.exp
 import android.provider.Settings as AndroidSettings
 import android.widget.Toast
@@ -437,7 +438,7 @@ private fun Viewfinder(
                     .fillMaxWidth()
                     .aspectRatio(ratio.portrait)
                     .clip(RoundedCornerShape(24.dp))
-                    .background(Color.Black)
+                    .background(Palette.Ink)
             ) {
                 AndroidView({ previewView }, Modifier.fillMaxSize())
                 Box(
@@ -491,13 +492,13 @@ private fun Viewfinder(
                     Text(
                         "$countdown",
                         Modifier.align(Alignment.Center).rotate(angle),
-                        color = Color.White,
+                        color = Palette.Paper,
                         fontSize = 96.sp,
                         fontWeight = FontWeight.Light
                     )
                 }
                 if (recording) RecordingBadge(camera, Modifier.align(Alignment.TopCenter))
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = flash.value)))
+                Box(Modifier.fillMaxSize().background(Palette.Ink.copy(alpha = flash.value)))
                 scanned?.let {
                     Box(Modifier.align(Alignment.BottomCenter)) { ScanResult(it) { scanned = null } }
                 }
@@ -562,7 +563,7 @@ private fun Viewfinder(
             )
         }
 
-        if (camera.screenFlash) Box(Modifier.fillMaxSize().background(Color.White))
+        if (camera.screenFlash) Box(Modifier.fillMaxSize().background(Palette.Paper))
         if (sheet) SettingsSheet(capabilities) { sheet = false }
         if (gallery) {
             Gallery(
@@ -702,7 +703,7 @@ private fun Control(
 @Composable
 private fun Grid() {
     Canvas(Modifier.fillMaxSize()) {
-        val color = Color.White.copy(alpha = 0.45f)
+        val color = Palette.Paper.copy(alpha = 0.45f)
         for (i in 1..2) {
             val x = size.width * i / 3
             val y = size.height * i / 3
@@ -720,7 +721,7 @@ private fun Level(tilt: Float) {
         val half = size.width / 4
         val center = Offset(size.width / 2, size.height / 2)
         drawLine(
-            Color.White.copy(alpha = if (level) 1f else 0.6f),
+            Palette.Paper.copy(alpha = if (level) 1f else 0.6f),
             center - Offset(half, 0f),
             center + Offset(half, 0f),
             if (level) 6f else 3f
@@ -731,7 +732,7 @@ private fun Level(tilt: Float) {
 @Composable
 private fun FocusRing(point: Offset) {
     Canvas(Modifier.offset { IntOffset(point.x.roundToInt() - 90, point.y.roundToInt() - 90) }.size(60.dp)) {
-        drawCircle(Color.White, size.minDimension / 2, style = Stroke(4f))
+        drawCircle(Palette.Paper, size.minDimension / 2, style = Stroke(4f))
     }
 }
 
@@ -741,7 +742,7 @@ private fun ScanFrame() {
         Box(
             Modifier
                 .size(240.dp)
-                .border(3.dp, Color.White.copy(alpha = 0.8f), RoundedCornerShape(28.dp))
+                .border(3.dp, Palette.Paper.copy(alpha = 0.8f), RoundedCornerShape(28.dp))
         )
     }
 }
@@ -752,14 +753,14 @@ private fun RecordingBadge(camera: Camera, modifier: Modifier) {
         modifier
             .padding(12.dp)
             .clip(RoundedCornerShape(50))
-            .background(Color.Black.copy(alpha = 0.5f))
+            .background(Palette.Ink.copy(alpha = 0.5f))
             .padding(horizontal = 14.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Box(Modifier.size(10.dp).clip(CircleShape).background(Color.White))
+        Box(Modifier.size(10.dp).clip(CircleShape).background(Palette.Paper))
         val text = duration(camera.recorded) + if (camera.paused) "  Paused" else ""
-        Text(text, color = Color.White, style = MaterialTheme.typography.labelLarge)
+        Text(text, color = Palette.Paper, style = MaterialTheme.typography.labelLarge)
     }
 }
 
@@ -970,9 +971,9 @@ private fun Hint(text: String, modifier: Modifier) {
         modifier
             .padding(12.dp)
             .clip(RoundedCornerShape(50))
-            .background(Color.Black.copy(alpha = 0.5f))
+            .background(Palette.Ink.copy(alpha = 0.5f))
             .padding(horizontal = 14.dp, vertical = 6.dp),
-        color = Color.White,
+        color = Palette.Paper,
         style = MaterialTheme.typography.labelLarge
     )
 }
@@ -987,8 +988,8 @@ private fun DocumentOutline(corners: List<PointF>) {
             if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
         path.close()
-        drawPath(path, Color.White.copy(alpha = 0.25f))
-        drawPath(path, Color.White, style = Stroke(6f))
+        drawPath(path, Palette.Paper.copy(alpha = 0.25f))
+        drawPath(path, Palette.Paper, style = Stroke(6f))
     }
 }
 

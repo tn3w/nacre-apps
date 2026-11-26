@@ -30,6 +30,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import org.nacre.core.Palette
 import kotlin.math.roundToInt
 
 class Histogram(private val onBins: (IntArray) -> Unit) : ImageAnalysis.Analyzer {
@@ -56,7 +57,7 @@ fun HistogramView(bins: IntArray, modifier: Modifier = Modifier) {
         modifier
             .size(128.dp, 56.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(Color.Black.copy(alpha = 0.4f))
+            .background(Palette.Ink.copy(alpha = 0.4f))
             .padding(6.dp)
     ) {
         val peak = bins.max().coerceAtLeast(1).toFloat()
@@ -64,7 +65,7 @@ fun HistogramView(bins: IntArray, modifier: Modifier = Modifier) {
         bins.forEachIndexed { index, count ->
             val height = size.height * count / peak
             drawRect(
-                Color.White.copy(alpha = 0.85f),
+                Palette.Paper.copy(alpha = 0.85f),
                 Offset(index * barWidth, size.height - height),
                 Size(barWidth, height)
             )
