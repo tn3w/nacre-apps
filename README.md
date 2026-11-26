@@ -94,15 +94,32 @@ Minimal, private system apps for a GrapheneOS-like Android ROM. No Google, no ne
 
 <br>
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/launcher/readme/badge-dark.png">
+    <img src="apps/launcher/readme/badge-light.png" width="228" alt="Launcher">
+  </picture>
+</p>
+
+<p align="center">Home screen with folders, widgets, an app drawer with search and work profiles, and every icon in liquid chrome.</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/launcher/readme/screens-dark.png">
+    <img src="apps/launcher/readme/screens-light.png" alt="Launcher screens">
+  </picture>
+</p>
+
+<br>
+
 <p align="center"><b>Wallpapers</b></p>
 
 <p align="center">Liquid-chrome diffraction, contour and nacre wallpapers for light and dark mode in the icon sheen style, made by <code>scripts/wallpaper.py</code>.</p>
 
 <p align="center">
-  <a href="wallpapers">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="wallpapers/readme-dark.png">
-      <img src="wallpapers/readme-light.png" alt="Wallpapers">
-    </picture>
-  </a>
+  <a href="wallpapers"><img src="wallpapers/readme-dark.png" alt="Dark wallpapers"></a>
+</p>
+
+<p align="center">
+  <a href="wallpapers"><img src="wallpapers/readme-light.png" alt="Light wallpapers"></a>
 </p>
