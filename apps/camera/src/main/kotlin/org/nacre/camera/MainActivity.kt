@@ -31,6 +31,7 @@ open class MainActivity : ComponentActivity() {
     private lateinit var camera: Camera
     private lateinit var launch: Launch
     private lateinit var listener: OrientationEventListener
+    private val mode = mutableStateOf(Mode.Photo)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,29 +44,36 @@ open class MainActivity : ComponentActivity() {
         if (secure) setShowWhenLocked(true)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        launch = launchOf(intent).copy(secure = secure)
+        launch = launchOf(intent).let {
+            if (secure) it.copy(secure = true, modes = it.modes - Mode.Scan) else it
+        }
         if (launch.output == Uri.EMPTY) {
             setResult(RESULT_CANCELED)
             return finish()
         }
+        if (savedInstanceState == null && intent.getBooleanExtra(EXTRA_FRONT, false)) {
+            Store.update { copy(front = true) }
+        }
         val start = savedInstanceState?.getString("tab") ?: intent.getStringExtra("tab")
-        val mode = mutableStateOf(
-            launch.modes.find { it.name == start } ?: launch.start
-        )
+        mode.value = launch.modes.find { it.name == start } ?: launch.start
         camera = Camera(this)
         listener = orientationListener()
 
         setContent {
             NacreTheme {
-                Surface { CameraApp(this, camera, launch, mode, orientation, shutter, ::deliverPhoto) {
-                    setResult(
-                        RESULT_OK,
-                        Intent().setData(it).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                Surface {
+                    CameraApp(
+                        this, camera, launch, mode, orientation, shutter,
+                        ::deliverPhoto, ::deliverVideo
                     )
-                    finish()
-                } }
+                }
             }
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString("tab", mode.value.name)
     }
 
     override fun onStart() {
@@ -123,22 +131,28 @@ open class MainActivity : ComponentActivity() {
             modes = listOf(Mode.Video),
             capture = true,
             output = outputOf(intent),
-            durationLimit = intent.getIntExtra(MediaStore.EXTRA_DURATION_LIMIT, 0) * 1000L,
-            sizeLimit = intent.getLongExtra(MediaStore.EXTRA_SIZE_LIMIT, 0)
+            durationLimit = intent.limit(MediaStore.EXTRA_DURATION_LIMIT) * 1000,
+            sizeLimit = intent.limit(MediaStore.EXTRA_SIZE_LIMIT)
         )
         MediaStore.INTENT_ACTION_VIDEO_CAMERA -> Launch(start = Mode.Video)
         else -> Launch()
     }
 
+    private fun Intent.limit(key: String): Long {
+        val value = extras?.get(key) as? Number ?: return 0
+        return value.toLong().coerceIn(0, Int.MAX_VALUE.toLong())
+    }
+
     private fun outputOf(intent: Intent): Uri? {
-        val uri = intent.getParcelableExtra(MediaStore.EXTRA_OUTPUT, Uri::class.java)
-            ?: return null
+        val uri = runCatching {
+            intent.getParcelableExtra(MediaStore.EXTRA_OUTPUT, Uri::class.java)
+        }.getOrNull() ?: return null
         val safe = uri.scheme == ContentResolver.SCHEME_CONTENT && !ownsMedia(uri)
         return if (safe) uri else Uri.EMPTY
     }
 
     private fun ownsMedia(uri: Uri): Boolean {
-        if (uri.authority != MediaStore.AUTHORITY) return false
+        if (uri.authority?.substringAfterLast('@') != MediaStore.AUTHORITY) return false
         val columns = arrayOf(MediaStore.MediaColumns.OWNER_PACKAGE_NAME)
         val owner = runCatching {
             contentResolver.query(uri, columns, null, null, null)?.use {
@@ -146,6 +160,16 @@ open class MainActivity : ComponentActivity() {
             }
         }.getOrNull()
         return owner == null || owner == packageName
+    }
+
+    private fun deliverVideo(uri: Uri?) {
+        val result = when {
+            uri == null -> null
+            launch.output != null -> Intent().setData(launch.output)
+            else -> Intent().setData(uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        setResult(if (result == null) RESULT_CANCELED else RESULT_OK, result)
+        finish()
     }
 
     private fun deliverPhoto(file: File) {
@@ -177,28 +201,36 @@ open class MainActivity : ComponentActivity() {
 
 class SecureActivity : MainActivity()
 
+private const val EXTRA_FRONT = "android.intent.extra.USE_FRONT_CAMERA"
+
 class TorchActivity : ComponentActivity() {
+    private val manager by lazy { getSystemService(CameraManager::class.java) }
+    private var callback: CameraManager.TorchCallback? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val manager = getSystemService(CameraManager::class.java)
         val id = manager.cameraIdList.firstOrNull {
-            manager.getCameraCharacteristics(it).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+            val characteristics = manager.getCameraCharacteristics(it)
+            characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
         } ?: return finish()
 
-        manager.registerTorchCallback(
-            object : CameraManager.TorchCallback() {
-                override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
-                    if (cameraId != id) return
-                    manager.unregisterTorchCallback(this)
-                    runCatching { manager.setTorchMode(id, !enabled) }
-                    finish()
-                }
+        val torch = object : CameraManager.TorchCallback() {
+            override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
+                if (cameraId != id || isFinishing) return
+                runCatching { manager.setTorchMode(id, !enabled) }
+                finish()
+            }
 
-                override fun onTorchModeUnavailable(cameraId: String) {
-                    if (cameraId == id) finish()
-                }
-            },
-            Handler(mainLooper)
-        )
+            override fun onTorchModeUnavailable(cameraId: String) {
+                if (cameraId == id) finish()
+            }
+        }
+        callback = torch
+        manager.registerTorchCallback(torch, Handler(mainLooper))
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        callback?.let(manager::unregisterTorchCallback)
     }
 }

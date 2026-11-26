@@ -129,7 +129,7 @@ fun CameraApp(
     orientation: Orientation,
     shutter: Flow<Unit>,
     onPhoto: (File) -> Unit,
-    onVideo: (Uri) -> Unit
+    onVideo: (Uri?) -> Unit
 ) {
     var cameraAllowed by remember { mutableStateOf(activity.granted(Manifest.permission.CAMERA)) }
     val request = rememberLauncherForActivityResult(RequestMultiplePermissions()) {
@@ -177,7 +177,7 @@ private fun Viewfinder(
     orientation: Orientation,
     shutter: Flow<Unit>,
     onPhoto: (File) -> Unit,
-    onVideo: (Uri) -> Unit,
+    onVideo: (Uri?) -> Unit,
     requestMicrophone: () -> Unit
 ) {
     val context = LocalContext.current
@@ -274,7 +274,7 @@ private fun Viewfinder(
         }
     }
 
-    LocationEffect(settings.location, camera)
+    LocationEffect(settings.location && !launch.capture, camera)
     ScreenFlashEffect(activity, camera.screenFlash)
 
     fun toast(text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
@@ -353,7 +353,11 @@ private fun Viewfinder(
     }
 
     fun startVideo() {
-        val target = launch.output?.let { context.contentResolver.openFileDescriptor(it, "rw") }
+        val output = launch.output
+        val target = output?.let {
+            runCatching { context.contentResolver.openFileDescriptor(it, "rw") }.getOrNull()
+                ?: return onVideo(null)
+        }
         camera.record(settings, target, launch.durationLimit, launch.sizeLimit) { uri ->
             if (launch.capture && uri != null) onVideo(uri) else saved(uri, video = true)
         }
