@@ -148,11 +148,8 @@ class KeyboardService :
         shift = Shift.Off
         reset()
         updateShift()
-        if (composing) {
-            scope.launch(Dispatchers.Default) {
-                Dictionary.of(this@KeyboardService, language)
-            }
-        }
+        Store.expireClips()
+        if (composing) preload()
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
@@ -177,7 +174,7 @@ class KeyboardService :
             composingEnd,
         )
         val lost = composingStart < 0 || composingEnd != end
-        if (start != end || (word.isNotEmpty() && lost)) {
+        if (start != end || (word.isNotEmpty() && lost && !composingIntact())) {
             currentInputConnection?.finishComposingText()
             reset()
         }
@@ -186,6 +183,10 @@ class KeyboardService :
         if (word.isEmpty()) predictions = predict()
         updateShift()
     }
+
+    private fun composingIntact() =
+        currentInputConnection?.getTextBeforeCursor(word.length, 0)?.toString() ==
+            word.toString()
 
     private fun reset() {
         word.clear()
@@ -198,14 +199,7 @@ class KeyboardService :
 
     fun type(raw: String) {
         val connection = currentInputConnection ?: return
-        val text =
-            if (shift ==
-                Shift.Off
-            ) {
-                raw
-            } else {
-                raw.map(Char::uppercaseChar).joinToString("")
-            }
+        val text = if (shift == Shift.Off) raw else raw.uppercase()
         val wordChar =
             text.all(Char::isLetterOrDigit) || (word.isNotEmpty() && text in "'-")
         reverting = null
@@ -227,7 +221,8 @@ class KeyboardService :
         connection.beginBatchEdit()
         val typed = word.toString()
         val committed = commitWord(correct = true)
-        if (autoSpace && text in ".,?!;:") {
+        val spaced = connection.getTextBeforeCursor(1, 0)?.toString() == " "
+        if (autoSpace && spaced && text in ".,?!;:") {
             connection.deleteSurroundingText(1, 0)
             connection.commitText("$text ", 1)
         } else {
@@ -258,7 +253,7 @@ class KeyboardService :
 
     private fun suggestionsFor(typed: String): Suggestions {
         if (suggestions.typed == typed) return suggestions
-        return dictionary().suggest(typed, Store.trusted, correcting)
+        return dictionary()?.suggest(typed, Store.trusted, correcting) ?: Suggestions()
     }
 
     private fun remember(
@@ -266,17 +261,9 @@ class KeyboardService :
         explicit: Boolean,
     ) {
         if (incognito || !Store[Toggle.Learning]) return
-        val before =
-            currentInputConnection
-                ?.getTextBeforeCursor(
-                    48,
-                    0,
-                )?.toString()
-                .orEmpty()
-        lastWord(before.dropLast(word.length))?.let { Store.follow(it, final) }
-        if (explicit ||
-            !dictionary().contains(final, emptyMap())
-        ) {
+        val before = currentInputConnection?.getTextBeforeCursor(48, 0)?.toString()
+        lastWord(before.orEmpty().dropLast(word.length))?.let { Store.follow(it, final) }
+        if (explicit || dictionary()?.contains(final, emptyMap()) == false) {
             Store.learn(final, explicit)
         }
     }
@@ -288,7 +275,9 @@ class KeyboardService :
             scope.launch {
                 val result =
                     withContext(Dispatchers.Default) {
-                        dictionary().suggest(typed, Store.trusted, correcting)
+                        Dictionary
+                            .of(this@KeyboardService, language)
+                            .suggest(typed, Store.trusted, correcting)
                     }
                 if (word.toString() == typed) suggestions = result
             }
@@ -298,11 +287,8 @@ class KeyboardService :
         val connection = currentInputConnection ?: return
         val typed = word.toString()
         connection.beginBatchEdit()
-        if (choice == typed) {
-            remember(choice, explicit = !dictionary().contains(choice, Store.trusted))
-        } else {
-            remember(choice, explicit = false)
-        }
+        val unknown = dictionary()?.contains(choice, Store.trusted) == false
+        remember(choice, explicit = choice == typed && unknown)
         connection.commitText("$choice ", 1)
         connection.endBatchEdit()
         word.clear()
@@ -317,6 +303,10 @@ class KeyboardService :
         val before = connection.getTextBeforeCursor(2, 0)?.toString().orEmpty()
         val recent = now - lastSpace < 1200
         lastSpace = now
+        if (autoSpace && before.endsWith(" ")) {
+            autoSpace = false
+            return
+        }
         if (recent && Store[Toggle.DoubleSpace] && word.isEmpty() && composing &&
             before.length == 2 && before[1] == ' ' && before[0].isLetterOrDigit()
         ) {
@@ -440,9 +430,7 @@ class KeyboardService :
     fun switchLanguage() {
         commitWord(correct = false)
         Store.cycleLanguage()
-        scope.launch(
-            Dispatchers.Default,
-        ) { Dictionary.of(this@KeyboardService, language) }
+        preload()
     }
 
     fun showPicker() =
@@ -471,7 +459,7 @@ class KeyboardService :
 
     fun emoji(text: String) {
         insert(text)
-        Store.useEmoji(text)
+        if (!incognito) Store.useEmoji(text)
     }
 
     fun feedback(
@@ -501,6 +489,7 @@ class KeyboardService :
     }
 
     private fun recordClip() {
+        if (incognito) return
         val clip = runCatching { clipboard.primaryClip }.getOrNull() ?: return
         if (clip.description.extras?.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE) ==
             true
@@ -511,7 +500,13 @@ class KeyboardService :
         Store.addClip(text.toString().take(5000))
     }
 
-    private fun dictionary() = Dictionary.of(this, language)
+    private fun preload() {
+        scope.launch(
+            Dispatchers.Default,
+        ) { Dictionary.of(this@KeyboardService, language) }
+    }
+
+    private fun dictionary() = Dictionary.loaded(language)
 
     companion object {
         private val passwords =

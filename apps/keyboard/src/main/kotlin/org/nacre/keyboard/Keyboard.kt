@@ -355,7 +355,18 @@ private class Touches(
     var popup by mutableStateOf<Popup?>(null)
     private val pointers = HashMap<PointerId, Pointer>()
 
-    suspend fun handle(input: PointerInputScope) =
+    suspend fun handle(input: PointerInputScope) {
+        try {
+            track(input)
+        } finally {
+            pointers.values.forEach { it.job?.cancel() }
+            pointers.clear()
+            pressed.clear()
+            popup = null
+        }
+    }
+
+    private suspend fun track(input: PointerInputScope) =
         input.awaitPointerEventScope {
             while (true) {
                 val event = awaitPointerEvent()

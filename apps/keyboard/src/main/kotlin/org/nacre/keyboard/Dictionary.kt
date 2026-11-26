@@ -150,6 +150,8 @@ class Dictionary(
             cache.getOrPut(language) { load(context, language) }
         }
 
+        fun loaded(language: Language) = synchronized(cache) { cache[language] }
+
         private fun load(
             context: Context,
             language: Language,

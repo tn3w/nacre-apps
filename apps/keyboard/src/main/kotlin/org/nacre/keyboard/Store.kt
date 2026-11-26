@@ -187,6 +187,11 @@ object Store {
                 .take(20)
     }
 
+    fun expireClips() {
+        val now = System.currentTimeMillis()
+        clips.value = clips.value.filter { now - it.time < CLIP_LIFETIME }
+    }
+
     fun removeClip(clip: Clip) {
         clips.value -= clip
     }

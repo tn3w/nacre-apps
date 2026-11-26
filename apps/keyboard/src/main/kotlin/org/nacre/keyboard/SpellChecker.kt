@@ -15,7 +15,7 @@ class SpellChecker : SpellCheckerService() {
             ): SuggestionsInfo {
                 val word = info.text.trim()
                 val language =
-                    Language.of(locale.substringBefore('_'))
+                    Language.of(locale.substringBefore('_').substringBefore('-'))
                         ?: Store.languages.value.first()
                 val dictionary = Dictionary.of(this@SpellChecker, language)
                 if (word.none(Char::isLetter) ||
@@ -30,7 +30,7 @@ class SpellChecker : SpellCheckerService() {
                     dictionary
                         .suggest(
                             word,
-                            Store.trusted,
+                            emptyMap(),
                             autocorrect = false,
                         ).words
                 return SuggestionsInfo(
