@@ -1,0 +1,49 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <uses-permission android:name="android.permission.ACCESS_HIDDEN_PROFILES" />
+  <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
+  <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+
+  <queries>
+    <intent>
+      <action android:name="android.intent.action.MAIN" />
+      <category android:name="android.intent.category.LAUNCHER" />
+    </intent>
+  </queries>
+
+  <application
+    android:name=".LauncherApplication"
+    android:dataExtractionRules="@xml/data_extraction_rules"
+    android:icon="@mipmap/ic_launcher"
+    android:label="Launcher"
+    android:theme="@style/Theme.Launcher">
+
+    <activity
+      android:name=".MainActivity"
+      android:clearTaskOnLaunch="true"
+      android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
+      android:exported="true"
+      android:launchMode="singleTask"
+      android:resumeWhilePausing="true"
+      android:stateNotNeeded="true"
+      android:taskAffinity=""
+      android:windowSoftInputMode="adjustNothing">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.HOME" />
+        <category android:name="android.intent.category.DEFAULT" />
+      </intent-filter>
+    </activity>
+
+    <activity
+      android:name=".PinActivity"
+      android:excludeFromRecents="true"
+      android:exported="true"
+      android:taskAffinity=""
+      android:theme="@style/Theme.Launcher.Pin">
+      <intent-filter>
+        <action android:name="android.content.pm.action.CONFIRM_PIN_SHORTCUT" />
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
