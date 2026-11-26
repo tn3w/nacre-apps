@@ -43,6 +43,7 @@
       android:theme="@style/Theme.Launcher.Pin">
       <intent-filter>
         <action android:name="android.content.pm.action.CONFIRM_PIN_SHORTCUT" />
+        <action android:name="android.content.pm.action.CONFIRM_PIN_APPWIDGET" />
       </intent-filter>
     </activity>
   </application>

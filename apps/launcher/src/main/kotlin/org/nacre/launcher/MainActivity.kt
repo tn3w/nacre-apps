@@ -1,5 +1,7 @@
 package org.nacre.launcher
 
+import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProviderInfo
 import android.content.Intent
 import android.content.pm.LauncherApps
 import android.graphics.Color
@@ -9,6 +11,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.addCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult
 import androidx.activity.viewModels
 import androidx.compose.animation.core.animate
 import androidx.compose.foundation.Image
@@ -70,6 +73,8 @@ class LauncherState : ViewModel() {
     var menu by mutableStateOf<Menu?>(null)
     var folder by mutableStateOf<Long?>(null)
     var settings by mutableStateOf(false)
+    var widgets by mutableStateOf(false)
+    var pendingWidget: Int? = null
     var firstPage by mutableIntStateOf(0)
     var page by mutableIntStateOf(0)
     var grid = Rect.Zero
@@ -106,6 +111,7 @@ class LauncherState : ViewModel() {
             menu != null -> menu = null
             folder != null -> folder = null
             settings -> settings = false
+            widgets -> widgets = false
             progress > 0f -> closeDrawer()
         }
     }
@@ -115,6 +121,7 @@ class LauncherState : ViewModel() {
         drag = null
         folder = null
         settings = false
+        widgets = false
         if (!alreadyHome) return reset()
         if (progress > 0f) closeDrawer() else firstPage++
     }
@@ -139,8 +146,11 @@ class LauncherState : ViewModel() {
             }
 
             grid.contains(position) -> {
-                val column = ((position.x - grid.left) / grid.width * columns).toInt()
-                val row = ((position.y - grid.top) / grid.height * Store.rows).toInt()
+                val item = drag.item
+                val x = (position.x - grid.left) / grid.width * columns
+                val y = (position.y - grid.top) / grid.height * Store.rows
+                val column = (x - (item.width - 1) / 2f).toInt()
+                val row = (y - (item.height - 1) / 2f).toInt()
                 val cell =
                     row.coerceIn(0, Store.rows - 1) * columns +
                         column.coerceIn(0, columns - 1)
@@ -149,6 +159,8 @@ class LauncherState : ViewModel() {
         }
     }
 }
+
+private const val CONFIGURE = 1
 
 class MainActivity : ComponentActivity() {
     private val state: LauncherState by viewModels()
@@ -160,7 +172,50 @@ class MainActivity : ComponentActivity() {
         window.isNavigationBarContrastEnforced = false
         onBackPressedDispatcher.addCallback(this) { state.back() }
         open(intent)
-        setContent { NacreTheme { Launcher(state) } }
+        setContent { NacreTheme { Launcher(state, ::addWidget) } }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        runCatching { Widgets.host.startListening() }
+    }
+
+    private val binding = registerForActivityResult(StartActivityForResult()) {
+        if (it.resultCode == RESULT_OK) configureWidget() else cancelWidget()
+    }
+
+    private fun addWidget(info: AppWidgetProviderInfo) {
+        state.widgets = false
+        val id = Widgets.allocate()
+        state.pendingWidget = id
+        if (Widgets.bind(id, info)) return configureWidget()
+        binding.launch(Widgets.bindIntent(id, info))
+    }
+
+    private fun configureWidget() {
+        val id = state.pendingWidget ?: return
+        val info = Widgets.info(id) ?: return cancelWidget()
+        if (info.configure == null) return placeWidget()
+        runCatching {
+            Widgets.host.startAppWidgetConfigureActivityForResult(this, id, 0, CONFIGURE, null)
+        }.onFailure { cancelWidget() }
+    }
+
+    @Deprecated("AppWidgetHost reports configuration results only here")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != CONFIGURE) return
+        if (resultCode == RESULT_OK) placeWidget() else cancelWidget()
+    }
+
+    private fun placeWidget() {
+        state.pendingWidget?.let(Widgets::place)
+        state.pendingWidget = null
+    }
+
+    private fun cancelWidget() {
+        state.pendingWidget?.let(Widgets::delete)
+        state.pendingWidget = null
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -172,6 +227,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        runCatching { Widgets.host.stopListening() }
         if (!isChangingConfigurations) state.reset()
     }
 
@@ -189,7 +245,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun Launcher(state: LauncherState) {
+fun Launcher(state: LauncherState, addWidget: (AppWidgetProviderInfo) -> Unit) {
     val items by Store.items.collectAsState()
     val pager = rememberPagerState {
         val used = items.filter { it.page >= 0 }.maxOfOrNull { it.page + 1 } ?: 1
@@ -214,7 +270,7 @@ fun Launcher(state: LauncherState) {
 
     val activity = androidx.activity.compose.LocalActivity.current
     val view = androidx.compose.ui.platform.LocalView.current
-    val overlay = state.progress > 0.5f || state.settings
+    val overlay = state.progress > 0.5f || state.settings || state.widgets
     SideEffect {
         val window = activity?.window ?: return@SideEffect
         val controller = WindowCompat.getInsetsController(window, view)
@@ -250,6 +306,7 @@ fun Launcher(state: LauncherState) {
         state.menu?.let { ItemMenu(it, state) }
         state.drag?.takeIf { it.moved }?.let { DragShadow(it, state) }
         if (state.settings) SettingsScreen { state.settings = false }
+        if (state.widgets) WidgetPicker({ state.widgets = false }, addWidget)
     }
 }
 
@@ -277,18 +334,17 @@ class PinActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val launcherApps = getSystemService(LauncherApps::class.java)
         val request = runCatching { launcherApps.getPinItemRequest(intent) }.getOrNull()
-        val shortcut = request?.shortcutInfo
-        if (request?.requestType != LauncherApps.PinItemRequest.REQUEST_TYPE_SHORTCUT ||
-            shortcut == null || !request.isValid
-        ) {
-            return finish()
-        }
+        if (request == null || !request.isValid) return finish()
+        val density = resources.displayMetrics.densityDpi
+        val shortcut = request.shortcutInfo
+        val widget = request.getAppWidgetProviderInfo(this)
+        val label = shortcut?.shortLabel?.toString()
+            ?: widget?.loadLabel(packageManager)
+            ?: return finish()
         val icon = runCatching {
-            launcherApps.getShortcutIconDrawable(
-                shortcut,
-                resources.displayMetrics.densityDpi,
-            )
-                ?.toBitmap()?.asImageBitmap()
+            val drawable = shortcut?.let { launcherApps.getShortcutIconDrawable(it, density) }
+                ?: widget?.loadIcon(this, density)
+            drawable?.toBitmap()?.asImageBitmap()
         }.getOrNull()
 
         setContent {
@@ -302,22 +358,12 @@ class PinActivity : ComponentActivity() {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             icon?.let { Image(it, null, Modifier.size(48.dp)) }
-                            Text(shortcut.shortLabel?.toString().orEmpty())
+                            Text(label)
                         }
                     },
                     confirmButton = {
                         TextButton(onClick = {
-                            if (request.isValid && request.accept()) {
-                                Store.add(
-                                    Item(
-                                        id = Store.nextId(),
-                                        kind = Kind.Shortcut,
-                                        target = shortcut.`package`,
-                                        serial = Apps.serial(shortcut.userHandle),
-                                        shortcut = shortcut.id,
-                                    ),
-                                )
-                            }
+                            accept(request)
                             finish()
                         }) { Text("Add") }
                     },
@@ -325,5 +371,26 @@ class PinActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    private fun accept(request: LauncherApps.PinItemRequest) {
+        if (!request.isValid) return
+        val shortcut = request.shortcutInfo
+        if (shortcut != null) {
+            if (!request.accept()) return
+            Store.add(
+                Item(
+                    id = Store.nextId(),
+                    kind = Kind.Shortcut,
+                    target = shortcut.`package`,
+                    serial = Apps.serial(shortcut.userHandle),
+                    shortcut = shortcut.id,
+                ),
+            )
+            return
+        }
+        val id = Widgets.allocate()
+        val extras = Bundle().apply { putInt(AppWidgetManager.EXTRA_APPWIDGET_ID, id) }
+        if (request.accept(extras)) Widgets.place(id) else Widgets.delete(id)
     }
 }

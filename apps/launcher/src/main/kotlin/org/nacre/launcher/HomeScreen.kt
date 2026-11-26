@@ -8,9 +8,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.format.DateUtils
+import android.util.SizeF
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
@@ -76,6 +78,7 @@ import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -135,7 +138,13 @@ fun Home(
             Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .onGloballyPositioned { state.grid = it.boundsInRoot() },
+                .onGloballyPositioned {
+                    state.grid = it.boundsInRoot()
+                    Widgets.cell = Size(
+                        state.grid.width / columns,
+                        state.grid.height / Store.rows,
+                    )
+                },
             beyondViewportPageCount = pager.pageCount,
             userScrollEnabled = state.drag == null,
             key = { it },
@@ -191,6 +200,8 @@ private fun Page(
             .pointerInput(Unit) {
                 detectTapGestures(onLongPress = { position ->
                     val at = state.grid.topLeft + position
+                    val cell = hovers(state.grid, at, columns, Store.rows)
+                    if (cell != null && Store.occupied(page, cell)) return@detectTapGestures
                     state.menu = Menu(Rect(at, Size(1f, 1f)))
                 })
             },
@@ -199,18 +210,15 @@ private fun Page(
         val width = maxWidth / columns
         val height = maxHeight / rows
         items.forEach { item ->
+            val place = Modifier
+                .offset(width * (item.cell % columns), height * (item.cell / columns))
+                .size(width * item.width, height * item.height)
             key(item.id) {
-                HomeTile(
-                    item,
-                    state,
-                    color,
-                    Modifier
-                        .offset(
-                            width * (item.cell % columns),
-                            height * (item.cell / columns),
-                        )
-                        .size(width, height),
-                )
+                if (item.kind == Kind.Widget) {
+                    WidgetTile(item, state, place)
+                } else {
+                    HomeTile(item, state, color, place)
+                }
             }
         }
         val drag = state.drag?.takeIf { it.moved && state.page == page }
@@ -478,6 +486,7 @@ fun ItemMenu(menu: Menu, state: LauncherState) {
                     context.openSafely(Intent(Intent.ACTION_SET_WALLPAPER))
                 },
             )
+            add(MenuEntry("Widgets", R.drawable.ic_widgets) { state.widgets = true })
             add(
                 MenuEntry("Home settings", R.drawable.ic_settings) {
                     state.settings = true
@@ -588,5 +597,36 @@ fun FolderView(folder: Item, state: LauncherState) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun WidgetTile(item: Item, state: LauncherState, modifier: Modifier) {
+    val slop = LocalViewConfiguration.current.touchSlop * 2
+    val info = remember(item.widget) { Widgets.info(item.widget) }
+    var bounds by remember { mutableStateOf(Rect.Zero) }
+    val hidden = state.drag?.let { it.moved && it.item.id == item.id } == true
+    BoxWithConstraints(
+        modifier
+            .alpha(if (hidden) 0f else 1f)
+            .padding(8.dp)
+            .onGloballyPositioned { bounds = it.boundsInRoot() }
+            .press(
+                tap = null,
+                hold = {
+                    state.menu = Menu(bounds, item)
+                    state.drag = Drag(item, fromDrawer = false, start = bounds.center)
+                },
+                move = { state.follow(it, slop) },
+                release = state::release,
+            ),
+    ) {
+        if (info == null) return@BoxWithConstraints
+        val size = SizeF(maxWidth.value, maxHeight.value)
+        AndroidView(
+            factory = { Widgets.host.createView(it, item.widget, info) },
+            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp)),
+            update = { it.updateAppWidgetSize(Bundle(), listOf(size)) },
+        )
     }
 }

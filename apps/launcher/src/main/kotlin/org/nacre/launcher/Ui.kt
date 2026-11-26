@@ -8,7 +8,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -44,6 +43,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.toAndroidRectF
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -124,12 +124,18 @@ private fun visual(item: Item, themed: Boolean, dark: Boolean): Visual? {
         }
 
         Kind.Folder -> Visual(item.name.ifBlank { "Folder" }, null)
+
+        Kind.Widget -> Visual("Widget", null)
     }
 }
 
 @Composable
 fun ItemIcon(item: Item, visual: Visual?, size: Dp = IconSize, tone: Tone? = null) {
     if (item.kind == Kind.Folder) return FolderIcon(item, size, tone)
+    if (item.kind == Kind.Widget) {
+        val shape = RoundedCornerShape(size / 4)
+        return Box(Modifier.size(size).background(Color.White.copy(alpha = 0.3f), shape))
+    }
     glyph(item, tone)?.let {
         return Image(painterResource(it), null, Modifier.size(size))
     }
@@ -223,35 +229,37 @@ fun Label(text: String, color: Color) {
 
 @Composable
 fun Modifier.press(
-    tap: () -> Unit,
+    tap: (() -> Unit)?,
     hold: () -> Unit,
     move: (Offset) -> Unit,
     release: () -> Unit,
 ): Modifier {
     val onTap by rememberUpdatedState(tap)
+    val claims = tap != null
     val onHold by rememberUpdatedState(hold)
     val onMove by rememberUpdatedState(move)
     val onRelease by rememberUpdatedState(release)
     return pointerInput(Unit) {
         awaitEachGesture {
-            val down = awaitFirstDown()
-            down.consume()
+            val initial = PointerEventPass.Initial
+            val down = awaitFirstDown(requireUnconsumed = false, pass = initial)
+            if (claims) down.consume()
             var up: PointerInputChange? = null
             val released = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
-                up = waitForUpOrCancellation()
+                up = waitForUpOrCancellation(initial)
             }
             if (released != null) {
-                up?.let {
-                    it.consume()
-                    onTap()
-                }
+                if (claims) up?.consume()
+                up?.let { onTap?.invoke() }
                 return@awaitEachGesture
             }
             onHold()
-            drag(down.id) {
-                onMove(it.positionChange())
-                it.consume()
-            }
+            do {
+                val change = awaitPointerEvent(initial).changes
+                    .firstOrNull { it.id == down.id } ?: break
+                onMove(change.positionChange())
+                change.consume()
+            } while (change.pressed)
             onRelease()
         }
     }

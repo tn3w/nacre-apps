@@ -13,16 +13,19 @@ import org.json.JSONObject
 const val DOCK = -1
 private const val MAX_PAGES = 12
 private const val MAX_FOLDER = 48
+private const val MAX_SPAN = 6
 
 class LauncherApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         Apps.init(this)
+        Widgets.init(this)
         Store.init(this)
+        Widgets.prune()
     }
 }
 
-enum class Kind { App, Shortcut, Folder }
+enum class Kind { App, Shortcut, Folder, Widget }
 
 data class Item(
     val id: Long,
@@ -34,8 +37,15 @@ data class Item(
     val shortcut: String = "",
     val name: String = "",
     val children: List<Item> = emptyList(),
+    val widget: Int = 0,
+    val width: Int = 1,
+    val height: Int = 1,
 ) {
     val key get() = key(target, serial)
+
+    fun cells(columns: Int) = (0 until height).flatMap { row ->
+        (0 until width).map { cell + row * columns + it }
+    }
 
     fun matches(packageName: String, serial: Long) =
         this.serial == serial && target.substringBefore('/') == packageName
@@ -50,6 +60,9 @@ data class Item(
         .put("shortcut", shortcut)
         .put("name", name)
         .put("children", JSONArray(children.map(Item::toJson)))
+        .put("widget", widget)
+        .put("width", width)
+        .put("height", height)
 
     companion object {
         fun fromJson(json: JSONObject): Item {
@@ -68,6 +81,9 @@ data class Item(
                 }
                     .filter { it.kind != Kind.Folder }
                     .take(MAX_FOLDER),
+                widget = json.optInt("widget"),
+                width = json.optInt("width", 1).coerceIn(1, MAX_SPAN),
+                height = json.optInt("height", 1).coerceIn(1, MAX_SPAN),
             )
         }
 
@@ -182,9 +198,16 @@ object Store {
     fun drop(item: Item, page: Int, cell: Int) {
         val existing = items.value.find { it.id == item.id }
         val others = items.value - setOfNotNull(existing)
-        val occupant = others.find { it.page == page && it.cell == cell }
         val moved = item.copy(page = page, cell = cell)
+        if (item.kind == Kind.Widget) {
+            if (fits(moved, others)) save(others + moved)
+            return
+        }
+        val occupant = others.find {
+            it.page == page && cell in it.cells(columns.value)
+        }
         if (occupant == null) return save(others + moved)
+        if (occupant.kind == Kind.Widget) return
 
         val isFolder = occupant.kind == Kind.Folder
         val fits = !isFolder || occupant.children.size < MAX_FOLDER
@@ -208,23 +231,43 @@ object Store {
         save(others - occupant + folder)
     }
 
-    fun add(item: Item) {
-        val free = freeSlot() ?: return Apps.toast("No room on the home screen")
-        save(items.value + item.copy(page = free.first, cell = free.second))
+    fun add(item: Item): Boolean {
+        val spot = spots(item).firstOrNull { fits(it, items.value) }
+        if (spot == null) {
+            Apps.toast("No room on the home screen")
+            return false
+        }
+        save(items.value + spot)
+        return true
+    }
+
+    fun occupied(page: Int, cell: Int) = items.value.any {
+        it.page == page && cell in it.cells(columns.value)
     }
 
     fun addNew(app: App) {
         if (autoAdd.value && !has(app)) add(Item.of(app, nextId()))
     }
 
-    private fun freeSlot(): Pair<Int, Int>? {
-        val taken = items.value.map { it.page to it.cell }.toSet()
-        val cells = columns.value * rows
-        for (page in 0 until MAX_PAGES) {
-            val cell = (0 until cells).firstOrNull { (page to it) !in taken }
-            if (cell != null) return page to cell
+    private fun spots(item: Item) = (0 until MAX_PAGES).asSequence().flatMap { page ->
+        (0 until columns.value * rows).asSequence().map { item.copy(page = page, cell = it) }
+    }
+
+    private fun slots(item: Item) = item.cells(columns.value).map { item.page to it }
+
+    private fun inside(item: Item): Boolean {
+        if (item.page == DOCK) {
+            return item.kind != Kind.Widget && item.cell in 0 until columns.value
         }
-        return null
+        val column = item.cell % columns.value
+        val row = item.cell / columns.value
+        return item.page in 0 until MAX_PAGES && item.cell >= 0 &&
+            column + item.width <= columns.value && row + item.height <= rows
+    }
+
+    private fun fits(item: Item, others: List<Item>): Boolean {
+        val taken = others.filter { it.id != item.id }.flatMap(::slots).toSet()
+        return inside(item) && slots(item).none { it in taken }
     }
 
     fun remove(id: Long) {
@@ -280,6 +323,8 @@ object Store {
 
     private fun save(list: List<Item>) {
         val arranged = arrange(list.mapNotNull(::settleFolder))
+        val kept = arranged.map { it.widget }.toSet()
+        items.value.map { it.widget }.filter { it != 0 && it !in kept }.forEach(Widgets::delete)
         items.value = arranged
         preferences.edit {
             putString("items", JSONArray(arranged.map(Item::toJson)).toString())
@@ -296,27 +341,26 @@ object Store {
     }
 
     private fun arrange(list: List<Item>): List<Item> {
-        val cells = columns.value * rows
         val taken = mutableSetOf<Pair<Int, Int>>()
         val placed = mutableListOf<Item>()
         val overflow = mutableListOf<Item>()
-        for (item in list.sortedWith(compareBy({ it.page }, { it.cell }))) {
-            val limit = if (item.page == DOCK) columns.value else cells
-            val slot = item.page to item.cell
-            if (item.cell in 0 until limit && item.page in DOCK until MAX_PAGES &&
-                taken.add(slot)
-            ) {
+        val clamped = list.map {
+            it.copy(width = it.width.coerceAtMost(columns.value), height = it.height.coerceAtMost(rows))
+        }
+        for (item in clamped.sortedWith(compareBy({ it.page }, { it.cell }))) {
+            val slots = slots(item)
+            if (inside(item) && slots.none { it in taken }) {
+                taken += slots
                 placed += item
             } else {
                 overflow += item
             }
         }
         for (item in overflow) {
-            val slot = (0 until MAX_PAGES).asSequence()
-                .flatMap { page -> (0 until cells).asSequence().map { page to it } }
-                .firstOrNull { it !in taken } ?: break
-            taken += slot
-            placed += item.copy(page = slot.first, cell = slot.second)
+            val spot = spots(item).firstOrNull { inside(it) && slots(it).none(taken::contains) }
+                ?: continue
+            taken += slots(spot)
+            placed += spot
         }
         val pages = placed.map { it.page }.filter { it >= 0 }.distinct().sorted()
         return placed.map { item ->
