@@ -3,6 +3,7 @@ package org.nacre.launcher
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -209,6 +210,7 @@ private fun DrawerTile(app: App, state: LauncherState) {
         item,
         MaterialTheme.colorScheme.onSurface,
         Modifier.padding(vertical = 10.dp),
+        if (isSystemInDarkTheme()) Tone.White else Tone.Black,
         open = launch,
         hold = { _, bounds ->
             val placed = item.copy(id = Store.nextId())

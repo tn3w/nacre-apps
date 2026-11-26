@@ -48,6 +48,9 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import org.nacre.core.NacreTheme
 
@@ -174,6 +177,8 @@ class MainActivity : ComponentActivity() {
         window.isNavigationBarContrastEnforced = false
         onBackPressedDispatcher.addCallback(this) { state.back() }
         open(intent)
+        val dark = resources.configuration.isNightModeActive
+        lifecycleScope.launch(Dispatchers.IO) { runCatching { Store.syncWallpaper(dark) } }
         setContent { NacreTheme { Launcher(state, ::addWidget) } }
     }
 

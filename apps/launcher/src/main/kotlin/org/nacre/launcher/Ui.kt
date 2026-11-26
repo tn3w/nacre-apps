@@ -69,6 +69,7 @@ import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.nacre.core.Palette
 
 val IconSize = 56.dp
 
@@ -137,7 +138,7 @@ private fun FolderIcon(folder: Item, size: Dp, tone: Tone?) {
     val background =
         when (tone) {
             Tone.White -> Color.White.copy(alpha = 0.16f)
-            Tone.Black -> Color.Black.copy(alpha = 0.08f)
+            Tone.Black -> Palette.Mist
             null -> MaterialTheme.colorScheme.surfaceContainer
         }
     Box(

@@ -307,7 +307,9 @@ private fun SearchPill(color: Color, onClick: () -> Unit) {
             .fillMaxWidth()
             .height(52.dp)
             .clip(CircleShape)
-            .background(color.copy(alpha = 0.14f))
+            .background(
+                if (color == Palette.Ink) Palette.Mist else color.copy(alpha = 0.14f),
+            )
             .clickable(onClick = onClick)
             .padding(horizontal = 20.dp),
         Arrangement.spacedBy(12.dp),

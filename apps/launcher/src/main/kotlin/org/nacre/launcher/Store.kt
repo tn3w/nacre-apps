@@ -1,6 +1,7 @@
 package org.nacre.launcher
 
 import android.app.Application
+import android.app.WallpaperManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -107,6 +108,7 @@ object Store {
     val keyboard = MutableStateFlow(false)
     val autoAdd = MutableStateFlow(true)
     val sheen = MutableStateFlow(true)
+    val wallpaper = MutableStateFlow(true)
     val hidden = MutableStateFlow(emptySet<String>())
 
     val rows get() = columns.value + 1
@@ -118,6 +120,7 @@ object Store {
         keyboard.value = preferences.getBoolean("keyboard", false)
         autoAdd.value = preferences.getBoolean("autoAdd", true)
         sheen.value = preferences.getBoolean("sheen", true)
+        wallpaper.value = preferences.getBoolean("wallpaper", true)
         hidden.value = preferences.getStringSet("hidden", emptySet()).orEmpty().toSet()
         val saved = preferences.getString("items", null)
         if (saved == null) {
@@ -184,6 +187,32 @@ object Store {
     fun setSheen(value: Boolean) {
         sheen.value = value
         preferences.edit { putBoolean("sheen", value) }
+    }
+
+    fun setWallpaper(value: Boolean) {
+        wallpaper.value = value
+        preferences.edit {
+            putBoolean("wallpaper", value)
+            remove("wallpaperId")
+        }
+    }
+
+    fun syncWallpaper(dark: Boolean) {
+        if (!wallpaper.value) return
+        val manager = WallpaperManager.getInstance(context)
+        val owned = preferences.getInt("wallpaperId", -1)
+        val current = manager.getWallpaperId(WallpaperManager.FLAG_SYSTEM)
+        if (owned != -1 && current != owned) return setWallpaper(false)
+        val variant = if (dark) "dark" else "light"
+        if (owned == current && preferences.getString("variant", null) == variant) return
+        val flags = WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK
+        val id = context.assets.open("wallpaper-$variant.png").use {
+            manager.setStream(it, null, true, flags)
+        }
+        preferences.edit {
+            putInt("wallpaperId", id)
+            putString("variant", variant)
+        }
     }
 
     fun addGlance() = add(Item(nextId(), Kind.Glance, width = columns.value))

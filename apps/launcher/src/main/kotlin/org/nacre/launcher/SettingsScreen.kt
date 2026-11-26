@@ -77,6 +77,7 @@ private fun Options(showHidden: () -> Unit) {
     val columns by Store.columns.collectAsState()
     val keyboard by Store.keyboard.collectAsState()
     val sheen by Store.sheen.collectAsState()
+    val wallpaper by Store.wallpaper.collectAsState()
     val autoAdd by Store.autoAdd.collectAsState()
     val hidden by Store.hidden.collectAsState()
 
@@ -106,6 +107,14 @@ private fun Options(showHidden: () -> Unit) {
                 "Render every app icon in the liquid chrome style",
                 sheen,
                 Store::setSheen,
+            )
+        }
+        item {
+            Toggle(
+                "Nacre wallpaper",
+                "Use the light or dark wallpaper to match the theme",
+                wallpaper,
+                Store::setWallpaper,
             )
         }
         item {
