@@ -99,6 +99,11 @@ class KeyboardService :
 
     override fun onEvaluateFullscreenMode() = false
 
+    override fun onShowInputRequested(
+        flags: Int,
+        configChange: Boolean,
+    ) = onEvaluateInputViewShown() || super.onShowInputRequested(flags, configChange)
+
     override fun onStartInputView(
         info: EditorInfo,
         restarting: Boolean,
