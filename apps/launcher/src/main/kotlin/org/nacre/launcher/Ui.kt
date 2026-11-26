@@ -40,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.toAndroidRectF
@@ -73,7 +74,12 @@ import org.nacre.core.Palette
 
 val IconSize = 56.dp
 
-enum class Tone { Black, White }
+enum class Tone(val color: Color) {
+    Black(Palette.Ink),
+    White(Palette.Paper),
+}
+
+fun surface(ink: Color) = lerp(Color(1 - ink.red, 1 - ink.green, 1 - ink.blue), ink, 0.12f)
 
 data class Visual(
     val label: String,
@@ -135,12 +141,8 @@ fun ItemIcon(item: Item, visual: Visual?, size: Dp = IconSize, tone: Tone? = nul
 
 @Composable
 private fun FolderIcon(folder: Item, size: Dp, tone: Tone?) {
-    val background =
-        when (tone) {
-            Tone.White -> Color.White.copy(alpha = 0.16f)
-            Tone.Black -> Palette.Mist
-            null -> MaterialTheme.colorScheme.surfaceContainer
-        }
+    val background = tone?.let { surface(it.color) }
+        ?: MaterialTheme.colorScheme.surfaceContainer
     Box(
         Modifier
             .size(size)

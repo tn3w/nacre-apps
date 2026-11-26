@@ -98,7 +98,7 @@ fun Home(
     val items by Store.items.collectAsState()
     val columns by Store.columns.collectAsState()
     val context = LocalContext.current
-    val color = if (darkText) Palette.Ink else Palette.Paper
+    val color = state.tone.color
     var pulled by remember { mutableFloatStateOf(0f) }
     val dragging = state.drag?.takeIf { it.moved }
 
@@ -307,9 +307,7 @@ private fun SearchPill(color: Color, onClick: () -> Unit) {
             .fillMaxWidth()
             .height(52.dp)
             .clip(CircleShape)
-            .background(
-                if (color == Palette.Ink) Palette.Mist else color.copy(alpha = 0.14f),
-            )
+            .background(surface(color))
             .clickable(onClick = onClick)
             .padding(horizontal = 20.dp),
         Arrangement.spacedBy(12.dp),
