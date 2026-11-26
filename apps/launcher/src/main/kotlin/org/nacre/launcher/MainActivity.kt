@@ -138,7 +138,9 @@ class LauncherState : ViewModel() {
         val position = drag.position
         val columns = Store.columns.value
         when {
-            removal.contains(position) && !drag.fromDrawer -> Store.remove(drag.item.id)
+            removal.contains(position) && !drag.fromDrawer -> {
+                Store.remove(drag.item.id)
+            }
 
             dock.contains(position) -> {
                 val cell = ((position.x - dock.left) / dock.width * columns).toInt()
@@ -180,9 +182,10 @@ class MainActivity : ComponentActivity() {
         runCatching { Widgets.host.startListening() }
     }
 
-    private val binding = registerForActivityResult(StartActivityForResult()) {
-        if (it.resultCode == RESULT_OK) configureWidget() else cancelWidget()
-    }
+    private val binding =
+        registerForActivityResult(StartActivityForResult()) {
+            if (it.resultCode == RESULT_OK) configureWidget() else cancelWidget()
+        }
 
     private fun addWidget(info: AppWidgetProviderInfo) {
         state.widgets = false
@@ -197,7 +200,13 @@ class MainActivity : ComponentActivity() {
         val info = Widgets.info(id) ?: return cancelWidget()
         if (info.configure == null) return placeWidget()
         runCatching {
-            Widgets.host.startAppWidgetConfigureActivityForResult(this, id, 0, CONFIGURE, null)
+            Widgets.host.startAppWidgetConfigureActivityForResult(
+                this,
+                id,
+                0,
+                CONFIGURE,
+                null,
+            )
         }.onFailure { cancelWidget() }
     }
 
@@ -233,13 +242,20 @@ class MainActivity : ComponentActivity() {
 
     private fun open(intent: Intent) {
         when (intent.getStringExtra("tab")) {
-            "Apps" -> state.progress = 1f
+            "Apps" -> {
+                state.progress = 1f
+            }
 
-            "Folder" ->
+            "Folder" -> {
                 state.folder =
-                    Store.items.value.firstOrNull { it.kind == Kind.Folder }?.id
+                    Store.items.value
+                        .firstOrNull { it.kind == Kind.Folder }
+                        ?.id
+            }
 
-            "Settings" -> state.settings = true
+            "Settings" -> {
+                state.settings = true
+            }
         }
     }
 }
@@ -247,10 +263,11 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun Launcher(state: LauncherState, addWidget: (AppWidgetProviderInfo) -> Unit) {
     val items by Store.items.collectAsState()
-    val pager = rememberPagerState {
-        val used = items.filter { it.page >= 0 }.maxOfOrNull { it.page + 1 } ?: 1
-        used + if (state.drag != null) 1 else 0
-    }
+    val pager =
+        rememberPagerState {
+            val used = items.filter { it.page >= 0 }.maxOfOrNull { it.page + 1 } ?: 1
+            used + if (state.drag != null) 1 else 0
+        }
     val darkText = rememberDarkText()
     val dark = isSystemInDarkTheme()
     state.tone = if (darkText) Tone.Black else Tone.White
@@ -281,23 +298,26 @@ fun Launcher(state: LauncherState, addWidget: (AppWidgetProviderInfo) -> Unit) {
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val height = constraints.maxHeight.toFloat()
-        val motion = DrawerMotion(
-            drag = { delta ->
-                state.progress =
-                    (state.progress - delta / height).coerceIn(0f, 1f)
-            },
-            settle = { velocity ->
-                state.target = when {
-                    velocity < -800f -> true
-                    velocity > 800f -> false
-                    else -> state.progress > 0.5f
-                }
-            },
-        )
+        val motion =
+            DrawerMotion(
+                drag = { delta ->
+                    state.progress =
+                        (state.progress - delta / height).coerceIn(0f, 1f)
+                },
+                settle = { velocity ->
+                    state.target =
+                        when {
+                            velocity < -800f -> true
+                            velocity > 800f -> false
+                            else -> state.progress > 0.5f
+                        }
+                },
+            )
         Home(state, pager, darkText, motion)
-        val drawerOffset = Modifier.offset {
-            IntOffset(0, (height * (1 - state.progress)).roundToInt())
-        }
+        val drawerOffset =
+            Modifier.offset {
+                IntOffset(0, (height * (1 - state.progress)).roundToInt())
+            }
         Drawer(state, motion, drawerOffset)
         state.folder?.let { id ->
             Store.folder(id)?.let { FolderView(it, state) }
@@ -306,7 +326,12 @@ fun Launcher(state: LauncherState, addWidget: (AppWidgetProviderInfo) -> Unit) {
         state.menu?.let { ItemMenu(it, state) }
         state.drag?.takeIf { it.moved }?.let { DragShadow(it, state) }
         if (state.settings) SettingsScreen { state.settings = false }
-        if (state.widgets) WidgetPicker({ state.widgets = false }, addWidget)
+        if (state.widgets) {
+            WidgetPicker({ state.widgets = false }, addWidget) {
+                state.widgets = false
+                Store.addGlance()
+            }
+        }
     }
 }
 
@@ -322,10 +347,9 @@ private fun DragShadow(drag: Drag, state: LauncherState) {
                     drag.position.x.roundToInt() - half,
                     drag.position.y.roundToInt() - half,
                 )
-            }
-            .scale(1.1f),
+            }.scale(1.1f),
     ) {
-        ItemIcon(drag.item, rememberVisual(drag.item), tone = state.tone)
+        ItemIcon(drag.item, rememberVisual(drag.item, state.tone), tone = state.tone)
     }
 }
 
@@ -338,14 +362,17 @@ class PinActivity : ComponentActivity() {
         val density = resources.displayMetrics.densityDpi
         val shortcut = request.shortcutInfo
         val widget = request.getAppWidgetProviderInfo(this)
-        val label = shortcut?.shortLabel?.toString()
-            ?: widget?.loadLabel(packageManager)
-            ?: return finish()
-        val icon = runCatching {
-            val drawable = shortcut?.let { launcherApps.getShortcutIconDrawable(it, density) }
-                ?: widget?.loadIcon(this, density)
-            drawable?.toBitmap()?.asImageBitmap()
-        }.getOrNull()
+        val label =
+            shortcut?.shortLabel?.toString()
+                ?: widget?.loadLabel(packageManager)
+                ?: return finish()
+        val icon =
+            runCatching {
+                val drawable =
+                    shortcut?.let { launcherApps.getShortcutIconDrawable(it, density) }
+                        ?: widget?.loadIcon(this, density)
+                drawable?.toBitmap()?.asImageBitmap()
+            }.getOrNull()
 
         setContent {
             NacreTheme {

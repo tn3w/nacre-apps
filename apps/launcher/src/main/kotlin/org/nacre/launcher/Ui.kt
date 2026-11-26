@@ -74,25 +74,6 @@ val IconSize = 56.dp
 
 enum class Tone { Black, White }
 
-private val GLYPHS = mapOf(
-    "org.nacre.calculator" to
-        (R.drawable.glyph_black_calculator to R.drawable.glyph_white_calculator),
-    "org.nacre.clock" to (R.drawable.glyph_black_clock to R.drawable.glyph_white_clock),
-    "org.nacre.contacts" to
-        (R.drawable.glyph_black_contacts to R.drawable.glyph_white_contacts),
-    "org.nacre.messages" to
-        (R.drawable.glyph_black_messages to R.drawable.glyph_white_messages),
-    "org.nacre.phone" to (R.drawable.glyph_black_phone to R.drawable.glyph_white_phone),
-    "com.android.settings" to
-        (R.drawable.glyph_black_settings to R.drawable.glyph_white_settings),
-)
-
-private fun glyph(item: Item, tone: Tone?): Int? {
-    if (tone == null || item.kind != Kind.App) return null
-    val (black, white) = GLYPHS[item.target.substringBefore('/')] ?: return null
-    return if (tone == Tone.White) white else black
-}
-
 data class Visual(
     val label: String,
     val icon: ImageBitmap?,
@@ -102,42 +83,50 @@ data class Visual(
 )
 
 @Composable
-fun rememberVisual(item: Item): Visual? {
+fun rememberVisual(item: Item, tone: Tone? = null): Visual? {
     val revision by Apps.revision.collectAsState()
-    val themed by Store.themed.collectAsState()
-    val dark = isSystemInDarkTheme()
-    return produceState<Visual?>(null, item, revision, themed, dark) {
-        value = withContext(Dispatchers.IO) { visual(item, themed, dark) }
+    val sheen by Store.sheen.collectAsState()
+    return produceState<Visual?>(null, item, revision, tone, sheen) {
+        value = withContext(Dispatchers.IO) { visual(item, tone) }
     }.value
 }
 
-private fun visual(item: Item, themed: Boolean, dark: Boolean): Visual? {
+private fun visual(item: Item, tone: Tone?): Visual? {
     val dimmed = Apps.isQuiet(item.serial)
     return when (item.kind) {
-        Kind.App -> Apps.find(item.target, item.serial)?.let {
-            Visual(it.label, Apps.icon(it, themed, dark), app = it, dimmed = dimmed)
+        Kind.App -> {
+            Apps.find(item.target, item.serial)?.let {
+                Visual(it.label, Apps.icon(it, tone), app = it, dimmed = dimmed)
+            }
         }
 
-        Kind.Shortcut -> Apps.pinned(item.target, item.shortcut, item.serial)?.let {
-            val icon = Apps.icon(it, themed, dark)
-            Visual(it.shortLabel.toString(), icon, shortcut = it, dimmed = dimmed)
+        Kind.Shortcut -> {
+            Apps.pinned(item.target, item.shortcut, item.serial)?.let {
+                val icon = Apps.icon(it)
+                Visual(it.shortLabel.toString(), icon, shortcut = it, dimmed = dimmed)
+            }
         }
 
-        Kind.Folder -> Visual(item.name.ifBlank { "Folder" }, null)
+        Kind.Folder -> {
+            Visual(item.name.ifBlank { "Folder" }, null)
+        }
 
-        Kind.Widget -> Visual("Widget", null)
+        Kind.Widget -> {
+            Visual("Widget", null)
+        }
+
+        Kind.Glance -> {
+            Visual("At a glance", null)
+        }
     }
 }
 
 @Composable
 fun ItemIcon(item: Item, visual: Visual?, size: Dp = IconSize, tone: Tone? = null) {
     if (item.kind == Kind.Folder) return FolderIcon(item, size, tone)
-    if (item.kind == Kind.Widget) {
+    if (item.isWidget) {
         val shape = RoundedCornerShape(size / 4)
         return Box(Modifier.size(size).background(Color.White.copy(alpha = 0.3f), shape))
-    }
-    glyph(item, tone)?.let {
-        return Image(painterResource(it), null, Modifier.size(size))
     }
     val icon = visual?.icon ?: return Box(Modifier.size(size))
     Image(icon, null, Modifier.size(size).alpha(if (visual.dimmed) 0.5f else 1f))
@@ -145,11 +134,12 @@ fun ItemIcon(item: Item, visual: Visual?, size: Dp = IconSize, tone: Tone? = nul
 
 @Composable
 private fun FolderIcon(folder: Item, size: Dp, tone: Tone?) {
-    val background = when (tone) {
-        Tone.White -> Color.White.copy(alpha = 0.16f)
-        Tone.Black -> Color.Black.copy(alpha = 0.08f)
-        null -> MaterialTheme.colorScheme.surfaceContainer
-    }
+    val background =
+        when (tone) {
+            Tone.White -> Color.White.copy(alpha = 0.16f)
+            Tone.Black -> Color.Black.copy(alpha = 0.08f)
+            null -> MaterialTheme.colorScheme.surfaceContainer
+        }
     Box(
         Modifier
             .size(size)
@@ -164,7 +154,14 @@ private fun FolderIcon(folder: Item, size: Dp, tone: Tone?) {
         ) {
             folder.children.take(4).chunked(2).forEach { pair ->
                 Row {
-                    pair.forEach { ItemIcon(it, rememberVisual(it), size * 5 / 12, tone) }
+                    pair.forEach {
+                        ItemIcon(
+                            it,
+                            rememberVisual(it, tone),
+                            size * 5 / 12,
+                            tone,
+                        )
+                    }
                 }
             }
         }
@@ -182,7 +179,7 @@ fun Tile(
     move: (Offset) -> Unit = {},
     release: () -> Unit = {},
 ) {
-    val visual = rememberVisual(item)
+    val visual = rememberVisual(item, tone)
     var bounds by remember { mutableStateOf(Rect.Zero) }
     val label = visual?.label.orEmpty()
     Column(
@@ -214,8 +211,9 @@ fun Tile(
 
 @Composable
 fun Label(text: String, color: Color) {
-    val shadow = Shadow(Color.Black.copy(alpha = 0.6f), blurRadius = 6f)
-        .takeIf { color.red > 0.5f }
+    val shadow =
+        Shadow(Color.Black.copy(alpha = 0.6f), blurRadius = 6f)
+            .takeIf { color.red > 0.5f }
     Text(
         text,
         Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
@@ -245,9 +243,10 @@ fun Modifier.press(
             val down = awaitFirstDown(requireUnconsumed = false, pass = initial)
             if (claims) down.consume()
             var up: PointerInputChange? = null
-            val released = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
-                up = waitForUpOrCancellation(initial)
-            }
+            val released =
+                withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                    up = waitForUpOrCancellation(initial)
+                }
             if (released != null) {
                 if (claims) up?.consume()
                 up?.let { onTap?.invoke() }
@@ -255,8 +254,10 @@ fun Modifier.press(
             }
             onHold()
             do {
-                val change = awaitPointerEvent(initial).changes
-                    .firstOrNull { it.id == down.id } ?: break
+                val change =
+                    awaitPointerEvent(initial)
+                        .changes
+                        .firstOrNull { it.id == down.id } ?: break
                 onMove(change.positionChange())
                 change.consume()
             } while (change.pressed)
@@ -296,15 +297,16 @@ fun MenuPopup(
     dismiss: () -> Unit,
 ) {
     val rect = bounds.toAndroidRectF()
-    val anchor = Anchor(
-        IntRect(
-            rect.left.toInt(),
-            rect.top.toInt(),
-            rect.right.toInt(),
-            rect.bottom.toInt(),
-        ),
-        with(androidx.compose.ui.platform.LocalDensity.current) { 8.dp.roundToPx() },
-    )
+    val anchor =
+        Anchor(
+            IntRect(
+                rect.left.toInt(),
+                rect.top.toInt(),
+                rect.right.toInt(),
+                rect.bottom.toInt(),
+            ),
+            with(androidx.compose.ui.platform.LocalDensity.current) { 8.dp.roundToPx() },
+        )
     Popup(anchor, dismiss, PopupProperties(focusable = true)) {
         Surface(
             shape = RoundedCornerShape(24.dp),
@@ -353,12 +355,13 @@ fun rememberLaunch(): (Visual, Rect) -> Unit {
     val view = LocalView.current
     return { visual, bounds ->
         val rect = bounds.toAndroidRectF()
-        val area = android.graphics.Rect(
-            rect.left.toInt(),
-            rect.top.toInt(),
-            rect.right.toInt(),
-            rect.bottom.toInt(),
-        )
+        val area =
+            android.graphics.Rect(
+                rect.left.toInt(),
+                rect.top.toInt(),
+                rect.right.toInt(),
+                rect.bottom.toInt(),
+            )
         visual.app?.let { Apps.launch(view, area, it) }
         visual.shortcut?.let { Apps.launch(view, area, it) }
     }

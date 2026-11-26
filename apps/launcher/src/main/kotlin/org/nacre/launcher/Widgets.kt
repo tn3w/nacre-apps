@@ -6,29 +6,28 @@ import android.appwidget.AppWidgetProviderInfo
 import android.content.Context
 import android.content.Intent
 import android.content.pm.LauncherApps
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.style.TextOverflow
+import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,11 +38,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import kotlin.math.ceil
@@ -67,7 +69,10 @@ object Widgets {
     }
 
     fun prune() {
-        val used = Store.items.value.map { it.widget }.toSet()
+        val used =
+            Store.items.value
+                .map { it.widget }
+                .toSet()
         host.appWidgetIds.filter { it !in used }.forEach(::delete)
     }
 
@@ -93,22 +98,30 @@ object Widgets {
             .putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER_PROFILE, info.profile)
 
     fun span(info: AppWidgetProviderInfo): Pair<Int, Int> {
-        val width = info.targetCellWidth.takeIf { it > 0 }
-            ?: ceil(info.minWidth / cell.width).toInt()
-        val height = info.targetCellHeight.takeIf { it > 0 }
-            ?: ceil(info.minHeight / cell.height).toInt()
+        val width =
+            info.targetCellWidth.takeIf { it > 0 }
+                ?: ceil(info.minWidth / cell.width).toInt()
+        val height =
+            info.targetCellHeight.takeIf { it > 0 }
+                ?: ceil(info.minHeight / cell.height).toInt()
         return width.coerceIn(1, Store.columns.value) to height.coerceIn(1, Store.rows)
     }
 
     fun appLabel(info: AppWidgetProviderInfo): String {
         val serial = Apps.serial(info.profile)
         val packageName = info.provider.packageName
-        Apps.apps.value.find {
-            it.serial == serial && it.component.packageName == packageName
-        }?.let { return it.label }
+        Apps.apps.value
+            .find {
+                it.serial == serial && it.component.packageName == packageName
+            }?.let { return it.label }
         return runCatching {
             val launcherApps = context.getSystemService(LauncherApps::class.java)
-            val application = launcherApps.getApplicationInfo(packageName, 0, info.profile)
+            val application =
+                launcherApps.getApplicationInfo(
+                    packageName,
+                    0,
+                    info.profile,
+                )
             context.packageManager.getApplicationLabel(application).toString()
         }.getOrDefault(packageName)
     }
@@ -116,39 +129,52 @@ object Widgets {
     fun place(id: Int) {
         val info = info(id) ?: return delete(id)
         val (width, height) = span(info)
-        val item = Item(
-            id = Store.nextId(),
-            kind = Kind.Widget,
-            target = info.provider.flattenToString(),
-            serial = Apps.serial(info.profile),
-            widget = id,
-            width = width,
-            height = height,
-        )
+        val item =
+            Item(
+                id = Store.nextId(),
+                kind = Kind.Widget,
+                target = info.provider.flattenToString(),
+                serial = Apps.serial(info.profile),
+                widget = id,
+                width = width,
+                height = height,
+            )
         if (!Store.add(item)) delete(id)
     }
 
     fun preview(info: AppWidgetProviderInfo): ImageBitmap? = runCatching {
         val density = context.resources.displayMetrics.densityDpi
-        val drawable = info.loadPreviewImage(context, density) ?: info.loadIcon(context, density)
-        val scale = minOf(1f, PREVIEW_PIXELS / maxOf(drawable.intrinsicWidth, 1).toFloat())
-        drawable.toBitmap(
-            (drawable.intrinsicWidth * scale).toInt().coerceAtLeast(1),
-            (drawable.intrinsicHeight * scale).toInt().coerceAtLeast(1),
-        ).asImageBitmap()
+        val drawable =
+            info.loadPreviewImage(context, density) ?: info.loadIcon(context, density)
+        val scale =
+            minOf(1f, PREVIEW_PIXELS / maxOf(drawable.intrinsicWidth, 1).toFloat())
+        drawable
+            .toBitmap(
+                (drawable.intrinsicWidth * scale).toInt().coerceAtLeast(1),
+                (drawable.intrinsicHeight * scale).toInt().coerceAtLeast(1),
+            ).asImageBitmap()
     }.getOrNull()
 }
 
 @Composable
-fun WidgetPicker(close: () -> Unit, pick: (AppWidgetProviderInfo) -> Unit) {
+fun WidgetPicker(
+    close: () -> Unit,
+    pick: (AppWidgetProviderInfo) -> Unit,
+    glance: () -> Unit,
+) {
     BackHandler(onBack = close)
-    val groups by produceState<List<Pair<String, List<AppWidgetProviderInfo>>>?>(null) {
-        value = withContext(Dispatchers.IO) {
-            Widgets.providers()
-                .groupBy(Widgets::appLabel)
-                .toList()
-                .sortedBy { it.first.lowercase() }
-        }
+    val context = LocalContext.current
+    val groups by produceState<List<Pair<String, List<AppWidgetProviderInfo>>>>(
+        emptyList(),
+    ) {
+        value =
+            withContext(Dispatchers.IO) {
+                Widgets
+                    .providers()
+                    .groupBy(Widgets::appLabel)
+                    .toList()
+                    .sortedBy { it.first.lowercase() }
+            }
     }
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.safeDrawingPadding()) {
@@ -162,14 +188,36 @@ fun WidgetPicker(close: () -> Unit, pick: (AppWidgetProviderInfo) -> Unit) {
                     style = MaterialTheme.typography.titleLarge,
                 )
             }
-            val list = groups ?: return@Column
-            if (list.isEmpty()) return@Column Note("No widgets available")
             LazyColumn(
                 contentPadding = PaddingValues(16.dp, 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(list, key = { it.first }) { (app, providers) ->
-                    WidgetGroup(app, providers, pick)
+                item("launcher") {
+                    WidgetGroup("Launcher") {
+                        item {
+                            WidgetCard(
+                                "At a glance",
+                                "${Store.columns.value} × 1",
+                                glance,
+                            ) {
+                                GlancePreview()
+                            }
+                        }
+                    }
+                }
+                items(groups, key = { it.first }) { (app, providers) ->
+                    WidgetGroup(app) {
+                        items(
+                            providers,
+                            key = { "${it.provider}${it.profile}" },
+                        ) { info ->
+                            val (width, height) = Widgets.span(info)
+                            val label = info.loadLabel(context.packageManager)
+                            WidgetCard(label, "$width × $height", { pick(info) }) {
+                                ProviderPreview(info)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -177,11 +225,7 @@ fun WidgetPicker(close: () -> Unit, pick: (AppWidgetProviderInfo) -> Unit) {
 }
 
 @Composable
-private fun WidgetGroup(
-    app: String,
-    providers: List<AppWidgetProviderInfo>,
-    pick: (AppWidgetProviderInfo) -> Unit,
-) {
+private fun WidgetGroup(title: String, content: LazyListScope.() -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -191,28 +235,25 @@ private fun WidgetGroup(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            app,
+            title,
             Modifier.padding(horizontal = 20.dp),
             style = MaterialTheme.typography.titleMedium,
         )
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            items(providers, key = { "${it.provider}${it.profile}" }) { info ->
-                WidgetCard(info) { pick(info) }
-            }
-        }
+            content = content,
+        )
     }
 }
 
 @Composable
-private fun WidgetCard(info: AppWidgetProviderInfo, onClick: () -> Unit) {
-    val context = LocalContext.current
-    val preview by produceState<ImageBitmap?>(null, info) {
-        value = withContext(Dispatchers.IO) { Widgets.preview(info) }
-    }
-    val (width, height) = Widgets.span(info)
+private fun WidgetCard(
+    label: String,
+    size: String,
+    onClick: () -> Unit,
+    preview: @Composable () -> Unit,
+) {
     Column(
         Modifier
             .width(148.dp)
@@ -228,21 +269,47 @@ private fun WidgetCard(info: AppWidgetProviderInfo, onClick: () -> Unit) {
                 .background(if (isSystemInDarkTheme()) Palette.Ink else Palette.Graphite)
                 .padding(12.dp),
             Alignment.Center,
-        ) {
-            preview?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
-        }
+        ) { preview() }
         Text(
-            info.loadLabel(context.packageManager),
+            label,
             Modifier.padding(horizontal = 4.dp),
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            "$width × $height",
+            size,
             Modifier.padding(horizontal = 4.dp),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline,
         )
     }
+}
+
+@Composable
+private fun ProviderPreview(info: AppWidgetProviderInfo) {
+    val preview by produceState<ImageBitmap?>(null, info) {
+        value = withContext(Dispatchers.IO) { Widgets.preview(info) }
+    }
+    preview?.let {
+        Image(
+            it,
+            null,
+            Modifier.fillMaxSize(),
+            contentScale = ContentScale.Fit,
+        )
+    }
+}
+
+@Composable
+private fun GlancePreview() {
+    val context = LocalContext.current
+    val flags =
+        DateUtils.FORMAT_SHOW_WEEKDAY or DateUtils.FORMAT_SHOW_DATE or
+            DateUtils.FORMAT_NO_YEAR or DateUtils.FORMAT_ABBREV_ALL
+    Text(
+        DateUtils.formatDateTime(context, System.currentTimeMillis(), flags),
+        color = Palette.Paper,
+        style = MaterialTheme.typography.titleMedium,
+    )
 }

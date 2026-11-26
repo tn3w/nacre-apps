@@ -70,12 +70,13 @@ private fun Options(showHidden: () -> Unit) {
     val context = LocalContext.current
     val roles = remember { context.getSystemService(RoleManager::class.java) }
     var isHome by remember { mutableStateOf(roles.isRoleHeld(RoleManager.ROLE_HOME)) }
-    val request = rememberLauncherForActivityResult(StartActivityForResult()) {
-        isHome = roles.isRoleHeld(RoleManager.ROLE_HOME)
-    }
+    val request =
+        rememberLauncherForActivityResult(StartActivityForResult()) {
+            isHome = roles.isRoleHeld(RoleManager.ROLE_HOME)
+        }
     val columns by Store.columns.collectAsState()
-    val themed by Store.themed.collectAsState()
     val keyboard by Store.keyboard.collectAsState()
+    val sheen by Store.sheen.collectAsState()
     val autoAdd by Store.autoAdd.collectAsState()
     val hidden by Store.hidden.collectAsState()
 
@@ -101,10 +102,10 @@ private fun Options(showHidden: () -> Unit) {
         }
         item {
             Toggle(
-                "Themed icons",
-                "Show app icons in monochrome when available",
-                themed,
-                Store::setThemed,
+                "Sheen icons",
+                "Render every app icon in the liquid chrome style",
+                sheen,
+                Store::setSheen,
             )
         }
         item {
@@ -134,17 +135,13 @@ private fun Options(showHidden: () -> Unit) {
 private fun HiddenApps() {
     val apps by Apps.apps.collectAsState()
     val hidden by Store.hidden.collectAsState()
-    val themed by Store.themed.collectAsState()
-    val dark = isSystemInDarkTheme()
     LazyColumn {
         items(apps, key = { it.key }) { app ->
             val icon by produceState(
                 null as androidx.compose.ui.graphics.ImageBitmap?,
                 app,
-                themed,
-                dark,
             ) {
-                value = withContext(Dispatchers.IO) { Apps.icon(app, themed, dark) }
+                value = withContext(Dispatchers.IO) { Apps.icon(app) }
             }
             val profile = Apps.profile(app.serial)?.takeIf { !it.main }?.label
             ListItem(
@@ -155,9 +152,10 @@ private fun HiddenApps() {
                     Checkbox(app.key in hidden, { Store.setHidden(app, it) })
                 },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                modifier = Modifier.clickable {
-                    Store.setHidden(app, app.key !in hidden)
-                },
+                modifier =
+                    Modifier.clickable {
+                        Store.setHidden(app, app.key !in hidden)
+                    },
             )
         }
     }

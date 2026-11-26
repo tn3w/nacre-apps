@@ -18,6 +18,7 @@ private const val MAX_SPAN = 6
 class LauncherApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        Sheen.init(this)
         Apps.init(this)
         Widgets.init(this)
         Store.init(this)
@@ -25,7 +26,7 @@ class LauncherApplication : Application() {
     }
 }
 
-enum class Kind { App, Shortcut, Folder, Widget }
+enum class Kind { App, Shortcut, Folder, Widget, Glance }
 
 data class Item(
     val id: Long,
@@ -42,6 +43,7 @@ data class Item(
     val height: Int = 1,
 ) {
     val key get() = key(target, serial)
+    val isWidget get() = kind == Kind.Widget || kind == Kind.Glance
 
     fun cells(columns: Int) = (0 until height).flatMap { row ->
         (0 until width).map { cell + row * columns + it }
@@ -76,11 +78,11 @@ data class Item(
                 serial = json.getLong("serial"),
                 shortcut = json.optString("shortcut"),
                 name = json.optString("name").take(40),
-                children = List(children.length()) {
-                    fromJson(children.getJSONObject(it))
-                }
-                    .filter { it.kind != Kind.Folder }
-                    .take(MAX_FOLDER),
+                children =
+                    List(children.length()) {
+                        fromJson(children.getJSONObject(it))
+                    }.filter { it.kind != Kind.Folder }
+                        .take(MAX_FOLDER),
                 widget = json.optInt("widget"),
                 width = json.optInt("width", 1).coerceIn(1, MAX_SPAN),
                 height = json.optInt("height", 1).coerceIn(1, MAX_SPAN),
@@ -102,9 +104,9 @@ object Store {
 
     val items = MutableStateFlow(emptyList<Item>())
     val columns = MutableStateFlow(4)
-    val themed = MutableStateFlow(false)
     val keyboard = MutableStateFlow(false)
     val autoAdd = MutableStateFlow(true)
+    val sheen = MutableStateFlow(true)
     val hidden = MutableStateFlow(emptySet<String>())
 
     val rows get() = columns.value + 1
@@ -113,9 +115,9 @@ object Store {
         context = application
         preferences = context.getSharedPreferences("launcher", Context.MODE_PRIVATE)
         columns.value = preferences.getInt("columns", 4).coerceIn(4, 5)
-        themed.value = preferences.getBoolean("themed", false)
         keyboard.value = preferences.getBoolean("keyboard", false)
         autoAdd.value = preferences.getBoolean("autoAdd", true)
+        sheen.value = preferences.getBoolean("sheen", true)
         hidden.value = preferences.getStringSet("hidden", emptySet()).orEmpty().toSet()
         val saved = preferences.getString("items", null)
         if (saved == null) {
@@ -124,38 +126,46 @@ object Store {
             return
         }
         val array = runCatching { JSONArray(saved) }.getOrDefault(JSONArray())
-        val loaded = List(array.length()) {
-            runCatching { Item.fromJson(array.getJSONObject(it)) }.getOrNull()
-        }
+        val loaded =
+            List(array.length()) {
+                runCatching { Item.fromJson(array.getJSONObject(it)) }.getOrNull()
+            }
         save(loaded.filterNotNull().distinctBy { it.id })
     }
 
     private fun seedDock() {
-        val intents = listOf(
-            Intent(Intent.ACTION_DIAL),
-            Intent.makeMainSelectorActivity(
-                Intent.ACTION_MAIN,
-                Intent.CATEGORY_APP_MESSAGING,
-            ),
-            Intent.makeMainSelectorActivity(
-                Intent.ACTION_MAIN,
-                Intent.CATEGORY_APP_BROWSER,
-            ),
-            Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA),
-        )
-        val packages = intents.mapNotNull {
-            context.packageManager.resolveActivity(it, 0)?.activityInfo?.packageName
-                ?.takeIf { name -> name != "android" }
-        }
+        val intents =
+            listOf(
+                Intent(Intent.ACTION_DIAL),
+                Intent.makeMainSelectorActivity(
+                    Intent.ACTION_MAIN,
+                    Intent.CATEGORY_APP_MESSAGING,
+                ),
+                Intent.makeMainSelectorActivity(
+                    Intent.ACTION_MAIN,
+                    Intent.CATEGORY_APP_BROWSER,
+                ),
+                Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA),
+            )
+        val packages =
+            intents.mapNotNull {
+                context.packageManager
+                    .resolveActivity(it, 0)
+                    ?.activityInfo
+                    ?.packageName
+                    ?.takeIf { name -> name != "android" }
+            }
         Apps.reload { apps ->
             val main = Apps.serial(android.os.Process.myUserHandle())
-            val dock = packages.distinct().mapNotNull { name ->
-                apps.find { it.component.packageName == name && it.serial == main }
-            }
+            val dock =
+                packages.distinct().mapNotNull { name ->
+                    apps.find { it.component.packageName == name && it.serial == main }
+                }
+            val glance = Item(dock.size + 1L, Kind.Glance, width = columns.value)
             save(
                 dock.mapIndexed { index, app ->
                     Item.of(app, nextId() + index).copy(page = DOCK, cell = index)
-                },
+                } + glance,
             )
         }
     }
@@ -166,15 +176,17 @@ object Store {
         save(items.value)
     }
 
-    fun setThemed(value: Boolean) {
-        themed.value = value
-        preferences.edit { putBoolean("themed", value) }
-    }
-
     fun setKeyboard(value: Boolean) {
         keyboard.value = value
         preferences.edit { putBoolean("keyboard", value) }
     }
+
+    fun setSheen(value: Boolean) {
+        sheen.value = value
+        preferences.edit { putBoolean("sheen", value) }
+    }
+
+    fun addGlance() = add(Item(nextId(), Kind.Glance, width = columns.value))
 
     fun setAutoAdd(value: Boolean) {
         autoAdd.value = value
@@ -199,15 +211,16 @@ object Store {
         val existing = items.value.find { it.id == item.id }
         val others = items.value - setOfNotNull(existing)
         val moved = item.copy(page = page, cell = cell)
-        if (item.kind == Kind.Widget) {
+        if (item.isWidget) {
             if (fits(moved, others)) save(others + moved)
             return
         }
-        val occupant = others.find {
-            it.page == page && cell in it.cells(columns.value)
-        }
+        val occupant =
+            others.find {
+                it.page == page && cell in it.cells(columns.value)
+            }
         if (occupant == null) return save(others + moved)
-        if (occupant.kind == Kind.Widget) return
+        if (occupant.isWidget) return
 
         val isFolder = occupant.kind == Kind.Folder
         val fits = !isFolder || occupant.children.size < MAX_FOLDER
@@ -221,13 +234,14 @@ object Store {
             return save(others - occupant + joined)
         }
 
-        val folder = Item(
-            id = maxOf(nextId(), item.id + 1),
-            kind = Kind.Folder,
-            page = page,
-            cell = cell,
-            children = listOf(occupant, item),
-        )
+        val folder =
+            Item(
+                id = maxOf(nextId(), item.id + 1),
+                kind = Kind.Folder,
+                page = page,
+                cell = cell,
+                children = listOf(occupant, item),
+            )
         save(others - occupant + folder)
     }
 
@@ -250,14 +264,19 @@ object Store {
     }
 
     private fun spots(item: Item) = (0 until MAX_PAGES).asSequence().flatMap { page ->
-        (0 until columns.value * rows).asSequence().map { item.copy(page = page, cell = it) }
+        (0 until columns.value * rows).asSequence().map {
+            item.copy(
+                page = page,
+                cell = it,
+            )
+        }
     }
 
     private fun slots(item: Item) = item.cells(columns.value).map { item.page to it }
 
     private fun inside(item: Item): Boolean {
         if (item.page == DOCK) {
-            return item.kind != Kind.Widget && item.cell in 0 until columns.value
+            return !item.isWidget && item.cell in 0 until columns.value
         }
         val column = item.cell % columns.value
         val row = item.cell / columns.value
@@ -297,9 +316,10 @@ object Store {
                 .filterNot { it.matches(packageName, serial) }
                 .map { item ->
                     item.copy(
-                        children = item.children.filterNot {
-                            it.matches(packageName, serial)
-                        },
+                        children =
+                            item.children.filterNot {
+                                it.matches(packageName, serial)
+                            },
                     )
                 },
         )
@@ -324,7 +344,9 @@ object Store {
     private fun save(list: List<Item>) {
         val arranged = arrange(list.mapNotNull(::settleFolder))
         val kept = arranged.map { it.widget }.toSet()
-        items.value.map { it.widget }.filter { it != 0 && it !in kept }.forEach(Widgets::delete)
+        items.value.map { it.widget }.filter { it != 0 && it !in kept }.forEach(
+            Widgets::delete,
+        )
         items.value = arranged
         preferences.edit {
             putString("items", JSONArray(arranged.map(Item::toJson)).toString())
@@ -344,9 +366,13 @@ object Store {
         val taken = mutableSetOf<Pair<Int, Int>>()
         val placed = mutableListOf<Item>()
         val overflow = mutableListOf<Item>()
-        val clamped = list.map {
-            it.copy(width = it.width.coerceAtMost(columns.value), height = it.height.coerceAtMost(rows))
-        }
+        val clamped =
+            list.map {
+                it.copy(
+                    width = it.width.coerceAtMost(columns.value),
+                    height = it.height.coerceAtMost(rows),
+                )
+            }
         for (item in clamped.sortedWith(compareBy({ it.page }, { it.cell }))) {
             val slots = slots(item)
             if (inside(item) && slots.none { it in taken }) {
@@ -357,12 +383,18 @@ object Store {
             }
         }
         for (item in overflow) {
-            val spot = spots(item).firstOrNull { inside(it) && slots(it).none(taken::contains) }
-                ?: continue
+            val spot =
+                spots(item).firstOrNull { inside(it) && slots(it).none(taken::contains) }
+                    ?: continue
             taken += slots(spot)
             placed += spot
         }
-        val pages = placed.map { it.page }.filter { it >= 0 }.distinct().sorted()
+        val pages =
+            placed
+                .map { it.page }
+                .filter { it >= 0 }
+                .distinct()
+                .sorted()
         return placed.map { item ->
             if (item.page == DOCK) item else item.copy(page = pages.indexOf(item.page))
         }

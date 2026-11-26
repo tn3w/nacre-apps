@@ -83,49 +83,54 @@ fun Drawer(state: LauncherState, motion: DrawerMotion, modifier: Modifier) {
 
     val query = state.query.trim().searchable()
     val results = if (query.isEmpty()) emptyList() else search(apps, query)
-    val connection = object : NestedScrollConnection {
-        override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-            if (available.y >= 0f || state.progress == 1f) return Offset.Zero
-            motion.drag(available.y)
-            return Offset(0f, available.y)
-        }
-
-        override fun onPostScroll(
-            consumed: Offset,
-            available: Offset,
-            source: NestedScrollSource,
-        ): Offset {
-            if (available.y <= 0f ||
-                source != NestedScrollSource.UserInput
-            ) {
-                return Offset.Zero
+    val connection =
+        object : NestedScrollConnection {
+            override fun onPreScroll(
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                if (available.y >= 0f || state.progress == 1f) return Offset.Zero
+                motion.drag(available.y)
+                return Offset(0f, available.y)
             }
-            motion.drag(available.y)
-            return Offset(0f, available.y)
-        }
 
-        override suspend fun onPreFling(available: Velocity): Velocity {
-            if (state.progress == 1f) return Velocity.Zero
-            motion.settle(available.y)
-            return available
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                if (available.y <= 0f ||
+                    source != NestedScrollSource.UserInput
+                ) {
+                    return Offset.Zero
+                }
+                motion.drag(available.y)
+                return Offset(0f, available.y)
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (state.progress == 1f) return Velocity.Zero
+                motion.settle(available.y)
+                return available
+            }
         }
-    }
 
     Surface(modifier.fillMaxSize()) {
         Column(Modifier.statusBarsPadding()) {
             TextField(
                 value = state.query,
                 onValueChange = { state.query = it.take(60) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp, 12.dp)
-                    .focusRequester(focus)
-                    .onGloballyPositioned { fieldBounds = it.boundsInRoot() }
-                    .draggable(
-                        orientation = Orientation.Vertical,
-                        state = rememberDraggableState(motion.drag),
-                        onDragStopped = { motion.settle(it) },
-                    ),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp, 12.dp)
+                        .focusRequester(focus)
+                        .onGloballyPositioned { fieldBounds = it.boundsInRoot() }
+                        .draggable(
+                            orientation = Orientation.Vertical,
+                            state = rememberDraggableState(motion.drag),
+                            onDragStopped = { motion.settle(it) },
+                        ),
                 placeholder = { Text("Search apps") },
                 leadingIcon = { Icon(painterResource(R.drawable.ic_search), null) },
                 trailingIcon = {
@@ -138,15 +143,17 @@ fun Drawer(state: LauncherState, motion: DrawerMotion, modifier: Modifier) {
                 singleLine = true,
                 shape = CircleShape,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                keyboardActions = KeyboardActions(onGo = {
-                    results.firstOrNull()?.let { app ->
-                        launch(Visual(app.label, null, app = app), fieldBounds)
-                    }
-                }),
-                colors = TextFieldDefaults.colors(
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                ),
+                keyboardActions =
+                    KeyboardActions(onGo = {
+                        results.firstOrNull()?.let { app ->
+                            launch(Visual(app.label, null, app = app), fieldBounds)
+                        }
+                    }),
+                colors =
+                    TextFieldDefaults.colors(
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                    ),
             )
             LazyVerticalGrid(
                 GridCells.Fixed(columns),
@@ -166,10 +173,11 @@ fun Drawer(state: LauncherState, motion: DrawerMotion, modifier: Modifier) {
                     if (!profile.main) {
                         wide("profile${profile.serial}") { ProfileHeader(profile) }
                     }
-                    val shown = apps.filter {
-                        it.serial == profile.serial &&
-                            it.key !in hidden
-                    }
+                    val shown =
+                        apps.filter {
+                            it.serial == profile.serial &&
+                                it.key !in hidden
+                        }
                     apps(shown, state)
                 }
             }

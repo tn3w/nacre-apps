@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -65,6 +66,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.toAndroidRectF
@@ -100,80 +102,78 @@ fun Home(
     var pulled by remember { mutableFloatStateOf(0f) }
     val dragging = state.drag?.takeIf { it.moved }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .alpha(1f - state.progress)
-            .systemBarsPadding()
-            .draggable(
-                orientation = Orientation.Vertical,
-                state = rememberDraggableState { delta ->
-                    pulled += delta
-                    if (state.progress > 0f || pulled < 0f) motion.drag(delta)
-                },
-                onDragStarted = { pulled = 0f },
-                onDragStopped = { velocity ->
-                    if (pulled > 0f && state.progress == 0f) {
-                        expandNotifications(context)
-                    } else {
-                        motion.settle(velocity)
-                    }
-                },
-            ),
-    ) {
-        Box(
+    Box(Modifier.fillMaxSize()) {
+        Column(
             Modifier
-                .fillMaxWidth()
-                .height(112.dp)
-                .onGloballyPositioned { state.removal = it.boundsInRoot() },
+                .fillMaxSize()
+                .alpha(1f - state.progress)
+                .systemBarsPadding()
+                .draggable(
+                    orientation = Orientation.Vertical,
+                    state =
+                        rememberDraggableState { delta ->
+                            pulled += delta
+                            if (state.progress > 0f || pulled < 0f) motion.drag(delta)
+                        },
+                    onDragStarted = { pulled = 0f },
+                    onDragStopped = { velocity ->
+                        if (pulled > 0f && state.progress == 0f) {
+                            expandNotifications(context)
+                        } else {
+                            motion.settle(velocity)
+                        }
+                    },
+                ),
         ) {
-            if (dragging != null && !dragging.fromDrawer) {
-                RemoveZone(color, state.removal.contains(dragging.position))
-            } else {
-                Glance(color)
+            HorizontalPager(
+                pager,
+                Modifier
+                    .padding(top = 16.dp)
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .onGloballyPositioned {
+                        state.grid = it.boundsInRoot()
+                        Widgets.cell =
+                            Size(
+                                state.grid.width / columns,
+                                state.grid.height / Store.rows,
+                            )
+                    },
+                beyondViewportPageCount = pager.pageCount,
+                userScrollEnabled = state.drag == null,
+                key = { it },
+            ) { page ->
+                Page(items.filter { it.page == page }, page, columns, state, color)
             }
-        }
-        HorizontalPager(
-            pager,
-            Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .onGloballyPositioned {
-                    state.grid = it.boundsInRoot()
-                    Widgets.cell = Size(
-                        state.grid.width / columns,
-                        state.grid.height / Store.rows,
-                    )
-                },
-            beyondViewportPageCount = pager.pageCount,
-            userScrollEnabled = state.drag == null,
-            key = { it },
-        ) { page ->
-            Page(items.filter { it.page == page }, page, columns, state, color)
-        }
-        Dots(pager, color)
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .height(96.dp)
-                .onGloballyPositioned { state.dock = it.boundsInRoot() },
-        ) {
-            repeat(columns) { cell ->
-                Box(Modifier.weight(1f).fillMaxSize(), Alignment.Center) {
-                    items.find { it.page == DOCK && it.cell == cell }?.let {
-                        key(it.id) { HomeTile(it, state, null) }
-                    }
-                    if (dragging != null &&
-                        hovers(state.dock, dragging.position, columns, 1) == cell
-                    ) {
-                        Highlight()
+            Dots(pager, color)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(96.dp)
+                    .onGloballyPositioned { state.dock = it.boundsInRoot() },
+            ) {
+                repeat(columns) { cell ->
+                    Box(Modifier.weight(1f).fillMaxSize(), Alignment.Center) {
+                        items.find { it.page == DOCK && it.cell == cell }?.let {
+                            key(it.id) { HomeTile(it, state, null) }
+                        }
+                        if (dragging != null &&
+                            hovers(state.dock, dragging.position, columns, 1) == cell
+                        ) {
+                            Highlight()
+                        }
                     }
                 }
             }
+            SearchPill(color) {
+                state.focusSearch = true
+                state.openDrawer()
+            }
         }
-        SearchPill(color) {
-            state.focusSearch = true
-            state.openDrawer()
+        if (dragging != null && !dragging.fromDrawer) {
+            RemoveZone(color, state.removal.contains(dragging.position)) {
+                state.removal = it
+            }
         }
     }
     EdgeScroll(state, pager)
@@ -201,7 +201,11 @@ private fun Page(
                 detectTapGestures(onLongPress = { position ->
                     val at = state.grid.topLeft + position
                     val cell = hovers(state.grid, at, columns, Store.rows)
-                    if (cell != null && Store.occupied(page, cell)) return@detectTapGestures
+                    if (cell != null &&
+                        Store.occupied(page, cell)
+                    ) {
+                        return@detectTapGestures
+                    }
                     state.menu = Menu(Rect(at, Size(1f, 1f)))
                 })
             },
@@ -210,12 +214,13 @@ private fun Page(
         val width = maxWidth / columns
         val height = maxHeight / rows
         items.forEach { item ->
-            val place = Modifier
-                .offset(width * (item.cell % columns), height * (item.cell / columns))
-                .size(width * item.width, height * item.height)
+            val place =
+                Modifier
+                    .offset(width * (item.cell % columns), height * (item.cell / columns))
+                    .size(width * item.width, height * item.height)
             key(item.id) {
-                if (item.kind == Kind.Widget) {
-                    WidgetTile(item, state, place)
+                if (item.isWidget) {
+                    WidgetTile(item, state, color, place)
                 } else {
                     HomeTile(item, state, color, place)
                 }
@@ -314,9 +319,19 @@ private fun SearchPill(color: Color, onClick: () -> Unit) {
 }
 
 @Composable
-private fun RemoveZone(color: Color, active: Boolean) {
+private fun RemoveZone(color: Color, active: Boolean, place: (Rect) -> Unit) {
+    val shade = if (color == Palette.Paper) Color.Black else Color.White
     Row(
-        Modifier.fillMaxSize().alpha(if (active) 1f else 0.7f),
+        Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(
+                    listOf(shade.copy(alpha = 0.6f), Color.Transparent),
+                ),
+            ).statusBarsPadding()
+            .height(96.dp)
+            .onGloballyPositioned { place(it.boundsInRoot()) }
+            .alpha(if (active) 1f else 0.7f),
         Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         Alignment.CenterVertically,
     ) {
@@ -335,15 +350,18 @@ private fun Glance(color: Color) {
         }
     }
     val alarm = rememberNextAlarm()
-    val shadow = Shadow(Color.Black.copy(alpha = 0.5f), blurRadius = 8f)
-        .takeIf { color == Palette.Paper }
+    val shadow =
+        Shadow(Color.Black.copy(alpha = 0.5f), blurRadius = 8f)
+            .takeIf { color == Palette.Paper }
     val style = TextStyle(color = color, shadow = shadow)
     Column(
-        Modifier.fillMaxSize().padding(horizontal = 28.dp),
+        Modifier.fillMaxSize().padding(horizontal = 12.dp),
         Arrangement.Center,
+        Alignment.CenterHorizontally,
     ) {
-        val flags = DateUtils.FORMAT_SHOW_WEEKDAY or DateUtils.FORMAT_SHOW_DATE or
-            DateUtils.FORMAT_NO_YEAR
+        val flags =
+            DateUtils.FORMAT_SHOW_WEEKDAY or DateUtils.FORMAT_SHOW_DATE or
+                DateUtils.FORMAT_NO_YEAR
         Text(
             DateUtils.formatDateTime(context, now, flags),
             Modifier.clickable {
@@ -357,12 +375,13 @@ private fun Glance(color: Color) {
             style = MaterialTheme.typography.headlineSmall.merge(style),
         )
         alarm?.let { next ->
-            val time = DateUtils.formatDateTime(
-                context,
-                next.triggerTime,
-                DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_SHOW_WEEKDAY or
-                    DateUtils.FORMAT_ABBREV_WEEKDAY,
-            )
+            val time =
+                DateUtils.formatDateTime(
+                    context,
+                    next.triggerTime,
+                    DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_SHOW_WEEKDAY or
+                        DateUtils.FORMAT_ABBREV_WEEKDAY,
+                )
             Row(
                 Modifier.padding(top = 6.dp).clickable { showAlarm(next) },
                 Arrangement.spacedBy(6.dp),
@@ -381,9 +400,10 @@ private fun Glance(color: Color) {
 }
 
 private fun showAlarm(alarm: AlarmManager.AlarmClockInfo) {
-    val options = ActivityOptions.makeBasic().setPendingIntentBackgroundActivityStartMode(
-        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_ALWAYS,
-    )
+    val options =
+        ActivityOptions.makeBasic().setPendingIntentBackgroundActivityStartMode(
+            ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_ALWAYS,
+        )
     runCatching { alarm.showIntent?.send(options.toBundle()) }
 }
 
@@ -393,11 +413,12 @@ private fun rememberNextAlarm(): AlarmManager.AlarmClockInfo? {
     val manager = remember { context.getSystemService(AlarmManager::class.java) }
     var next by remember { mutableStateOf(manager.nextAlarmClock) }
     DisposableEffect(manager) {
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                next = manager.nextAlarmClock
+        val receiver =
+            object : BroadcastReceiver() {
+                override fun onReceive(context: Context, intent: Intent) {
+                    next = manager.nextAlarmClock
+                }
             }
-        }
         val filter = IntentFilter(AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED)
         context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
         onDispose { context.unregisterReceiver(receiver) }
@@ -409,6 +430,7 @@ private fun rememberNextAlarm(): AlarmManager.AlarmClockInfo? {
 fun rememberDarkText(): Boolean {
     val context = LocalContext.current
     val manager = remember { WallpaperManager.getInstance(context) }
+
     fun read(): Boolean {
         val hints =
             manager.getWallpaperColors(WallpaperManager.FLAG_SYSTEM)?.colorHints ?: 0
@@ -416,9 +438,10 @@ fun rememberDarkText(): Boolean {
     }
     var dark by remember { mutableStateOf(read()) }
     DisposableEffect(manager) {
-        val listener = WallpaperManager.OnColorsChangedListener { _, which ->
-            if (which and WallpaperManager.FLAG_SYSTEM != 0) dark = read()
-        }
+        val listener =
+            WallpaperManager.OnColorsChangedListener { _, which ->
+                if (which and WallpaperManager.FLAG_SYSTEM != 0) dark = read()
+            }
         manager.addOnColorsChangedListener(listener, Handler(Looper.getMainLooper()))
         onDispose { manager.removeOnColorsChangedListener(listener) }
     }
@@ -430,12 +453,13 @@ private fun EdgeScroll(state: LauncherState, pager: PagerState) {
     val edge = with(LocalDensity.current) { 28.dp.toPx() }
     val drag = state.drag?.takeIf { it.moved }
     val grid = state.grid
-    val direction = when {
-        drag == null || drag.position.y !in grid.top..grid.bottom -> 0
-        drag.position.x < grid.left + edge -> -1
-        drag.position.x > grid.right - edge -> 1
-        else -> 0
-    }
+    val direction =
+        when {
+            drag == null || drag.position.y !in grid.top..grid.bottom -> 0
+            drag.position.x < grid.left + edge -> -1
+            drag.position.x > grid.right - edge -> 1
+            else -> 0
+        }
     LaunchedEffect(direction) {
         while (direction != 0) {
             delay(600)
@@ -457,89 +481,92 @@ fun ItemMenu(menu: Menu, state: LauncherState) {
     val context = LocalContext.current
     val view = LocalView.current
     val launch = rememberLaunch()
-    val themed by Store.themed.collectAsState()
     val hidden by Store.hidden.collectAsState()
-    val dark = isSystemInDarkTheme()
     val app = menu.app
     val item = menu.item
-    val shortcuts by produceState(emptyList<MenuEntry>(), app, themed, dark) {
-        value = withContext(Dispatchers.IO) {
-            app?.let(Apps::shortcuts).orEmpty().map { shortcut ->
-                MenuEntry(
-                    shortcut.shortLabel?.toString().orEmpty(),
-                    image = Apps.icon(shortcut, themed, dark),
-                ) { launch(Visual("", null, shortcut = shortcut), menu.bounds) }
+    val shortcuts by produceState(emptyList<MenuEntry>(), app) {
+        value =
+            withContext(Dispatchers.IO) {
+                app?.let(Apps::shortcuts).orEmpty().map { shortcut ->
+                    MenuEntry(
+                        shortcut.shortLabel?.toString().orEmpty(),
+                        image = Apps.icon(shortcut),
+                    ) { launch(Visual("", null, shortcut = shortcut), menu.bounds) }
+                }
             }
-        }
     }
     val rect = menu.bounds.toAndroidRectF()
-    val area = android.graphics.Rect(
-        rect.left.toInt(),
-        rect.top.toInt(),
-        rect.right.toInt(),
-        rect.bottom.toInt(),
-    )
-    val actions = buildList {
-        if (item == null) {
-            add(
-                MenuEntry("Wallpaper", R.drawable.ic_image) {
-                    context.openSafely(Intent(Intent.ACTION_SET_WALLPAPER))
-                },
-            )
-            add(MenuEntry("Widgets", R.drawable.ic_widgets) { state.widgets = true })
-            add(
-                MenuEntry("Home settings", R.drawable.ic_settings) {
-                    state.settings = true
-                },
-            )
-            return@buildList
-        }
-        app?.let {
-            add(MenuEntry("App info", R.drawable.ic_info) { Apps.showInfo(area, it) })
-        }
-        when {
-            menu.folder != null -> {
+    val area =
+        android.graphics.Rect(
+            rect.left.toInt(),
+            rect.top.toInt(),
+            rect.right.toInt(),
+            rect.bottom.toInt(),
+        )
+    val actions =
+        buildList {
+            if (item == null) {
                 add(
-                    MenuEntry("Move to home screen", R.drawable.ic_add) {
-                        Store.removeFromFolder(menu.folder, item.id, toHome = true)
+                    MenuEntry("Wallpaper", R.drawable.ic_image) {
+                        context.openSafely(Intent(Intent.ACTION_SET_WALLPAPER))
                     },
                 )
+                add(MenuEntry("Widgets", R.drawable.ic_widgets) { state.widgets = true })
                 add(
-                    MenuEntry("Remove", R.drawable.ic_close) {
-                        Store.removeFromFolder(menu.folder, item.id, toHome = false)
+                    MenuEntry("Home settings", R.drawable.ic_settings) {
+                        state.settings = true
                     },
                 )
+                return@buildList
             }
-
-            menu.fromDrawer && app != null -> {
-                if (!Store.has(app)) {
+            app?.let {
+                add(MenuEntry("App info", R.drawable.ic_info) { Apps.showInfo(area, it) })
+            }
+            when {
+                menu.folder != null -> {
                     add(
-                        MenuEntry("Add to home screen", R.drawable.ic_add) {
-                            Store.add(item)
+                        MenuEntry("Move to home screen", R.drawable.ic_add) {
+                            Store.removeFromFolder(menu.folder, item.id, toHome = true)
+                        },
+                    )
+                    add(
+                        MenuEntry("Remove", R.drawable.ic_close) {
+                            Store.removeFromFolder(menu.folder, item.id, toHome = false)
                         },
                     )
                 }
-                val isHidden = app.key in hidden
-                add(
-                    MenuEntry(
-                        if (isHidden) "Show in app list" else "Hide from app list",
-                        R.drawable.ic_hide,
-                    ) {
-                        Store.setHidden(app, !isHidden)
-                    },
-                )
-            }
 
-            else -> add(
-                MenuEntry("Remove", R.drawable.ic_close) {
-                    Store.remove(item.id)
-                },
-            )
+                menu.fromDrawer && app != null -> {
+                    if (!Store.has(app)) {
+                        add(
+                            MenuEntry("Add to home screen", R.drawable.ic_add) {
+                                Store.add(item)
+                            },
+                        )
+                    }
+                    val isHidden = app.key in hidden
+                    add(
+                        MenuEntry(
+                            if (isHidden) "Show in app list" else "Hide from app list",
+                            R.drawable.ic_hide,
+                        ) {
+                            Store.setHidden(app, !isHidden)
+                        },
+                    )
+                }
+
+                else -> {
+                    add(
+                        MenuEntry("Remove", R.drawable.ic_close) {
+                            Store.remove(item.id)
+                        },
+                    )
+                }
+            }
+            app?.takeIf { !Apps.isSystem(it) }?.let {
+                add(MenuEntry("Uninstall", R.drawable.ic_delete) { Apps.uninstall(it) })
+            }
         }
-        app?.takeIf { !Apps.isSystem(it) }?.let {
-            add(MenuEntry("Uninstall", R.drawable.ic_delete) { Apps.uninstall(it) })
-        }
-    }
     MenuPopup(menu.bounds, shortcuts, actions) { state.menu = null }
 }
 
@@ -573,12 +600,13 @@ fun FolderView(folder: Item, state: LauncherState) {
                     placeholder = { Text("Folder") },
                     singleLine = true,
                     textStyle = MaterialTheme.typography.titleLarge,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                    ),
+                    colors =
+                        TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                        ),
                 )
                 LazyVerticalGrid(GridCells.Fixed(4), Modifier.heightIn(max = 440.dp)) {
                     items(folder.children, key = { it.id }) { child ->
@@ -601,9 +629,16 @@ fun FolderView(folder: Item, state: LauncherState) {
 }
 
 @Composable
-private fun WidgetTile(item: Item, state: LauncherState, modifier: Modifier) {
+private fun WidgetTile(
+    item: Item,
+    state: LauncherState,
+    color: Color,
+    modifier: Modifier,
+) {
     val slop = LocalViewConfiguration.current.touchSlop * 2
-    val info = remember(item.widget) { Widgets.info(item.widget) }
+    val info = remember(item.widget) {
+        if (item.kind == Kind.Widget) Widgets.info(item.widget) else null
+    }
     var bounds by remember { mutableStateOf(Rect.Zero) }
     val hidden = state.drag?.let { it.moved && it.item.id == item.id } == true
     BoxWithConstraints(
@@ -621,6 +656,7 @@ private fun WidgetTile(item: Item, state: LauncherState, modifier: Modifier) {
                 release = state::release,
             ),
     ) {
+        if (item.kind == Kind.Glance) return@BoxWithConstraints Glance(color)
         if (info == null) return@BoxWithConstraints
         val size = SizeF(maxWidth.value, maxHeight.value)
         AndroidView(

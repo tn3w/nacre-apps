@@ -38,6 +38,11 @@ FILTER = """<filter id="sheen" filterUnits="userSpaceOnUse" x="-{drift}" y="-{dr
 </filter>"""
 
 
+ENVIRONMENT = FILTER.split('  <feGaussianBlur in="SourceAlpha"')[0] + """<feFlood flood-color="#fff"/>
+  <feComposite in2="environment" operator="in"/>
+</filter>"""
+
+
 def read_glyph(path):
     text = path.read_text()
     view_box = [float(value) for value in re.search(r'viewBox="([^"]+)"', text)[1].split()]
@@ -45,7 +50,7 @@ def read_glyph(path):
     return view_box, re.sub(r'\sfill="[^"]*"', "", body).strip()
 
 
-def render(view_box, body, color, light):
+def render(view_box, body, color, light, effect=FILTER):
     min_x, min_y, width, height = view_box
     scale = (SIZE - 2 * PADDING) / max(width, height)
     shift_x = (SIZE - width * scale) / 2 - min_x * scale - DRIFT
@@ -53,7 +58,7 @@ def render(view_box, body, color, light):
     transform = f"translate({shift_x:g} {shift_y:g}) scale({scale:g})"
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {SIZE} {SIZE}">\n'
-        f"<defs>{FILTER.format(size=SIZE, drift=DRIFT, light=light)}</defs>\n"
+        f"<defs>{effect.format(size=SIZE, drift=DRIFT, light=light)}</defs>\n"
         f'<g transform="translate({DRIFT} {DRIFT})" filter="url(#sheen)">'
         f'<g fill="{color}" transform="{transform}">'
         f"{body}</g></g>\n</svg>\n"
@@ -69,7 +74,14 @@ def main():
     parser = argparse.ArgumentParser(description="Apply the nacre sheen to glyphs.")
     parser.add_argument("sources", nargs="*", type=Path, default=[Path("icons")])
     parser.add_argument("-o", "--out", type=Path, default=Path("build/icons"))
+    parser.add_argument("--environment", type=Path, help="write the reflection texture")
     arguments = parser.parse_args()
+
+    if arguments.environment:
+        square = '<rect width="24" height="24"/>'
+        svg = render([0, 0, 24, 24], square, "#000", "#fff", ENVIRONMENT)
+        arguments.environment.write_text(svg)
+        return
 
     for path in collect(arguments.sources):
         view_box, body = read_glyph(path)
