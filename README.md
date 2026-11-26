@@ -166,6 +166,24 @@ Minimal, private system apps for a GrapheneOS-like Android ROM. No Google, no ne
 
 <br>
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/keyboard/readme/badge-dark.png">
+    <img src="apps/keyboard/readme/badge-light.png" width="196" alt="Keyboard">
+  </picture>
+</p>
+
+<p align="center">Offline keyboard for English, German, French and Spanish with suggestions, auto-correction, on-device learning, accents, emoji, a memory-only clipboard history and a system spell checker, ready before first unlock.</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/keyboard/readme/screens-dark.png">
+    <img src="apps/keyboard/readme/screens-light.png" alt="Keyboard screens">
+  </picture>
+</p>
+
+<br>
+
 <p align="center"><b>Wallpapers</b></p>
 
 <p align="center">Liquid-chrome diffraction, contour and nacre wallpapers for light and dark mode in the icon sheen style, made by <code>scripts/wallpaper.py</code>.</p>
