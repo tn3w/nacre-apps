@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 WIDTH, HEIGHT = 1224, 2720
 INK = 0.25
-PAPER = 250 / 255
+TONES = {"dark": (0, 1), "light": (1, 0)}
 LENS_Y = 186.5
 
 
@@ -242,7 +242,7 @@ def main():
     parser.add_argument("designs", nargs="*", default=[*DESIGNS])
     parser.add_argument("-s", "--seed", type=int, default=7)
     parser.add_argument("-o", "--out", type=Path, default=Path("wallpapers"))
-    parser.add_argument("-l", "--light", action="store_true", help="render for light mode")
+    parser.add_argument("-t", "--tones", nargs="*", default=[*TONES])
     arguments = parser.parse_args()
 
     arguments.out.mkdir(parents=True, exist_ok=True)
@@ -250,12 +250,12 @@ def main():
     for name in arguments.designs:
         rng = np.random.default_rng(arguments.seed)
         values = DESIGNS[name](rng, x, y) + rng.uniform(-0.5, 0.5, x.shape) / 255
-        suffix = "-light" if arguments.light else ""
-        if arguments.light:
-            values = PAPER - values * PAPER
-        target = arguments.out / f"{name}-{arguments.seed}{suffix}.png"
-        Image.fromarray(np.uint8(np.clip(values, 0, 1) * 255)).save(target)
-        print(target)
+        for tone in arguments.tones:
+            background, ink = TONES[tone]
+            shade = background + (ink - background) * np.clip(values, 0, 1)
+            target = arguments.out / f"{name}-{arguments.seed}-{tone}.png"
+            Image.fromarray(np.uint8(shade * 255)).save(target)
+            print(target)
 
 
 if __name__ == "__main__":
