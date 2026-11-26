@@ -130,6 +130,24 @@ Minimal, private system apps for a GrapheneOS-like Android ROM. No Google, no ne
 
 <br>
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/gallery/readme/badge-dark.png">
+    <img src="apps/gallery/readme/badge-light.png" width="196" alt="Gallery">
+  </picture>
+</p>
+
+<p align="center">Photo and video library with sortable timelines, albums, favorites, trash, search, and an editor for crop, straighten, adjustments, filters and markup.</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/gallery/readme/screens-dark.png">
+    <img src="apps/gallery/readme/screens-light.png" alt="Gallery screens">
+  </picture>
+</p>
+
+<br>
+
 <p align="center"><b>Wallpapers</b></p>
 
 <p align="center">Liquid-chrome diffraction, contour and nacre wallpapers for light and dark mode in the icon sheen style, made by <code>scripts/wallpaper.py</code>.</p>
