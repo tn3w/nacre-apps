@@ -59,6 +59,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 
 enum class Mode(val label: String) {
     Photo("Photo"),
@@ -133,6 +134,7 @@ class Camera(private val activity: ComponentActivity) {
     private val main = activity.mainExecutor
     private val handler = Handler(Looper.getMainLooper())
     private val sound = MediaActionSound()
+    private var closed = false
     val worker = Executors.newSingleThreadExecutor()!!
 
     var location: Location? = null
@@ -169,6 +171,7 @@ class Camera(private val activity: ComponentActivity) {
     }
 
     fun close() {
+        closed = true
         recording?.stop()
         provider?.unbindAll()
         sound.release()
@@ -448,8 +451,11 @@ class Camera(private val activity: ComponentActivity) {
         sizeLimit: Long,
         onFinished: (Uri?) -> Unit
     ) {
-        if (recording != null) return
-        val recorder = videoCapture?.output ?: return onFinished(null)
+        val recorder = videoCapture?.output
+        if (recording != null || recorder == null) {
+            target?.close()
+            return onFinished(null)
+        }
         val lapse = settings.speed == Speed.Lapse && target == null
         val lapseFile = File(activity.cacheDir, "lapse.mp4")
         val pending = when {
@@ -474,26 +480,41 @@ class Camera(private val activity: ComponentActivity) {
                 recorder.prepareRecording(activity, options)
             }
         }
-        sound.play(MediaActionSound.START_VIDEO_RECORDING)
-        recording = pending.withMicrophone(settings.audio && !lapse).start(main) { event ->
-            when (event) {
-                is VideoRecordEvent.Status -> recorded = event.recordingStats.recordedDurationNanos
-                is VideoRecordEvent.Pause -> paused = true
-                is VideoRecordEvent.Resume -> paused = false
-                is VideoRecordEvent.Finalize -> {
-                    recording = null
-                    paused = false
-                    recorded = 0
-                    target?.close()
-                    sound.play(MediaActionSound.STOP_VIDEO_RECORDING)
-                    val uri = event.outputResults.outputUri.takeIf { event.error in FINISHED }
-                    if (!lapse || uri == null) return@start onFinished(uri)
-                    worker.execute {
-                        val saved = saveTimelapse(activity, lapseFile, "VID_${stamp()}")
-                        main.execute { onFinished(saved) }
+        val audio = settings.audio && !lapse
+        recording = runCatching {
+            pending.withMicrophone(audio).start(main) { event ->
+                when (event) {
+                    is VideoRecordEvent.Status ->
+                        recorded = event.recordingStats.recordedDurationNanos
+                    is VideoRecordEvent.Pause -> paused = true
+                    is VideoRecordEvent.Resume -> paused = false
+                    is VideoRecordEvent.Finalize -> {
+                        target?.close()
+                        finished(event, lapseFile.takeIf { lapse }, onFinished)
                     }
                 }
             }
+        }.getOrElse {
+            target?.close()
+            return onFinished(null)
+        }
+        sound.play(MediaActionSound.START_VIDEO_RECORDING)
+    }
+
+    private fun finished(
+        event: VideoRecordEvent.Finalize,
+        lapseFile: File?,
+        onFinished: (Uri?) -> Unit
+    ) {
+        recording = null
+        paused = false
+        recorded = 0
+        if (!closed) sound.play(MediaActionSound.STOP_VIDEO_RECORDING)
+        val uri = event.outputResults.outputUri.takeIf { event.error in FINISHED }
+        if (lapseFile == null || uri == null) return onFinished(uri)
+        thread {
+            val saved = saveTimelapse(activity, lapseFile, "VID_${stamp()}")
+            main.execute { onFinished(saved) }
         }
     }
 
