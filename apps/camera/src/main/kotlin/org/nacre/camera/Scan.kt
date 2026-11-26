@@ -47,7 +47,8 @@ class Scanner(private val onResult: (String) -> Unit) : ImageAnalysis.Analyzer {
         val plane = it.planes[0]
         val width = plane.rowStride
         val height = it.height
-        val bytes = ByteArray(plane.buffer.remaining()).also(plane.buffer::get)
+        val bytes = ByteArray(width * height)
+        plane.buffer.get(bytes, 0, minOf(bytes.size, plane.buffer.remaining()))
         val text = decode(bytes, width, height, it.width) ?: decode(
             rotate(bytes, width, height),
             height,
@@ -58,7 +59,6 @@ class Scanner(private val onResult: (String) -> Unit) : ImageAnalysis.Analyzer {
     }
 
     private fun decode(bytes: ByteArray, width: Int, height: Int, visible: Int): String? {
-        if (bytes.size < width * height) return null
         val source = PlanarYUVLuminanceSource(bytes, width, height, 0, 0, visible, height, false)
         return runCatching { reader.decodeWithState(BinaryBitmap(HybridBinarizer(source))).text }
             .getOrNull()

@@ -19,6 +19,7 @@ import android.provider.MediaStore
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import java.io.File
+import java.io.FileDescriptor
 import java.nio.ByteBuffer
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -53,21 +54,32 @@ fun saveTimelapse(context: Context, source: File, name: String): Uri? {
     return uri
 }
 
-private fun remux(source: File, target: java.io.FileDescriptor) {
+private fun remux(source: File, target: FileDescriptor) {
     val extractor = MediaExtractor()
-    extractor.setDataSource(source.path)
-    val track = (0 until extractor.trackCount).first {
-        extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME).orEmpty().startsWith("video/")
+    try {
+        extractor.setDataSource(source.path)
+        val track = (0 until extractor.trackCount).first {
+            val mime = extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)
+            mime.orEmpty().startsWith("video/")
+        }
+        extractor.selectTrack(track)
+        val muxer = MediaMuxer(target, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        try {
+            copyKeyFrames(extractor, muxer, extractor.getTrackFormat(track))
+        } finally {
+            muxer.release()
+        }
+    } finally {
+        extractor.release()
     }
-    extractor.selectTrack(track)
-    val format = extractor.getTrackFormat(track)
-    val muxer = MediaMuxer(target, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+}
+
+private fun copyKeyFrames(extractor: MediaExtractor, muxer: MediaMuxer, format: MediaFormat) {
     if (format.containsKey(MediaFormat.KEY_ROTATION)) {
         muxer.setOrientationHint(format.getInteger(MediaFormat.KEY_ROTATION))
     }
     val output = muxer.addTrack(format)
     muxer.start()
-
     val buffer = ByteBuffer.allocate(16 shl 20)
     val info = MediaCodec.BufferInfo()
     var frame = 0L
@@ -81,8 +93,6 @@ private fun remux(source: File, target: java.io.FileDescriptor) {
         extractor.advance()
     }
     muxer.stop()
-    muxer.release()
-    extractor.release()
 }
 
 fun ImageProxy.uprightBitmap(): Bitmap {
