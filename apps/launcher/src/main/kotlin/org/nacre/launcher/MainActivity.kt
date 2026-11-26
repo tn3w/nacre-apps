@@ -273,8 +273,8 @@ fun Launcher(state: LauncherState, addWidget: (AppWidgetProviderInfo) -> Unit) {
             val used = items.filter { it.page >= 0 }.maxOfOrNull { it.page + 1 } ?: 1
             used + if (state.drag != null) 1 else 0
         }
-    val darkText = rememberDarkText()
     val dark = isSystemInDarkTheme()
+    val darkText = !dark
     state.tone = if (darkText) Tone.Black else Tone.White
 
     LaunchedEffect(state.target) {

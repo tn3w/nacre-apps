@@ -2,15 +2,11 @@ package org.nacre.launcher
 
 import android.app.ActivityOptions
 import android.app.AlarmManager
-import android.app.WallpaperColors
-import android.app.WallpaperManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.text.format.DateUtils
 import android.util.SizeF
 import androidx.compose.foundation.background
@@ -424,28 +420,6 @@ private fun rememberNextAlarm(): AlarmManager.AlarmClockInfo? {
         onDispose { context.unregisterReceiver(receiver) }
     }
     return next
-}
-
-@Composable
-fun rememberDarkText(): Boolean {
-    val context = LocalContext.current
-    val manager = remember { WallpaperManager.getInstance(context) }
-
-    fun read(): Boolean {
-        val hints =
-            manager.getWallpaperColors(WallpaperManager.FLAG_SYSTEM)?.colorHints ?: 0
-        return hints and WallpaperColors.HINT_SUPPORTS_DARK_TEXT != 0
-    }
-    var dark by remember { mutableStateOf(read()) }
-    DisposableEffect(manager) {
-        val listener =
-            WallpaperManager.OnColorsChangedListener { _, which ->
-                if (which and WallpaperManager.FLAG_SYSTEM != 0) dark = read()
-            }
-        manager.addOnColorsChangedListener(listener, Handler(Looper.getMainLooper()))
-        onDispose { manager.removeOnColorsChangedListener(listener) }
-    }
-    return dark
 }
 
 @Composable
